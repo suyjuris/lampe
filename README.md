@@ -2,7 +2,7 @@
 Library for Agent Manipulation and Planning Efficiently
 
 ## Description
-Allows interfacing with the (MASSim Server)[https://multiagentcontest.org/].
+Allows interfacing with the [MASSim Server](https://multiagentcontest.org/).
 
 ## System requirements
 This project currently targets Microsoft Windows 64-bit. The sockets are the only non-portable part.
