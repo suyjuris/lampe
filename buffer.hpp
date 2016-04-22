@@ -104,6 +104,7 @@ public:
 	}
 
 	void append(void const* buf, int buf_size) {
+		if (!buf_size) return;
 		assert(buf_size > 0 and buf);
 		if (capacity() < m_size + buf_size)
 			reserve(std::max(m_size + buf_size, capacity() * 2));

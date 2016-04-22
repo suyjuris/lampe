@@ -13,7 +13,7 @@ struct Flat_array {
 	using Size_t = _Size_t;
 	
 	Offset_t start;
-
+		
 	Flat_array(): start{0} {}
 	Flat_array(Buffer* containing) { init(containing); }
 
@@ -28,6 +28,7 @@ struct Flat_array {
 	}
 
 	Size_t size() const { return m_size(); }
+
 
 	T* begin() { return (T*)(&m_size() + 1); }
 	T* end()   { return begin() + size(); }

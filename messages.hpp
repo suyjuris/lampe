@@ -48,6 +48,23 @@ struct Message_Sim_Start: Message_Server2Client {
 	Simulation simulation;
 };
 
+struct Message_Sim_End: Message_Server2Client {
+	Message_Sim_End() { type = SIM_END; }
+
+	u8 ranking;
+	u8 score;
+};
+
+struct Message_Bye: Message_Server2Client {
+	Message_Bye() { type = BYE; }
+};
+
+struct Message_Request_Action: Message_Server2Client {
+	Message_Request_Action() { type = REQUEST_ACTION; }
+
+	Perception perception;
+};
+
 void init_messages();
 void get_next_message(Socket& sock, Buffer* into);
 void send_message(Socket& sock, Message_Auth_Request const& mess);

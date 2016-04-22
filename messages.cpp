@@ -57,7 +57,10 @@ void init_messages() {
 	memory_for_messages.reserve(65536);
 
 	memory_for_strings.reserve(2048);
-	memory_for_strings.emplace_ref<Flat_idmap>();
+	auto& map = memory_for_strings.emplace_ref<Flat_idmap>();
+	
+	// Guarantee that no id maps to zero
+	assert(map.get_id("", &memory_for_strings) == 0);
 }
 
 u8 get_id(Buffer_view str) {
@@ -67,6 +70,41 @@ u8 get_id(Buffer_view str) {
 
 u8 get_id_from_string(Buffer_view str) {
 	return memory_for_strings.get_ref<Flat_idmap>().get_id(str);
+}
+
+static bool messages_lat_lon_initialized = false;
+static double mess_min_lat;
+static double mess_max_lat;
+static double mess_min_lon;
+static double mess_max_lon;
+
+void add_bound_point(pugi::xml_node xml_obj) {
+	double lat = xml_obj.attribute("lat").as_double();
+	double lon = xml_obj.attribute("lon").as_double();
+	if (!messages_lat_lon_initialized) {
+		mess_min_lat = lat;
+		mess_max_lat = lat;
+		mess_min_lon = lon;
+		mess_max_lon = lon;
+		messages_lat_lon_initialized = true;
+	}
+	if (lat < mess_min_lat) mess_min_lat = lat;
+	if (lat > mess_max_lat) mess_max_lat = lat;
+	if (lon < mess_min_lon) mess_min_lon = lon;
+	if (lon > mess_max_lon) mess_max_lon = lon;
+}
+
+Pos get_pos(pugi::xml_node xml_obj) {
+	constexpr static double pad = 0.05;
+	double lat = xml_obj.attribute("lat").as_double();
+	double lon = xml_obj.attribute("lon").as_double();
+	double lat_diff = (mess_max_lat - mess_min_lat);
+	double lon_diff = (mess_max_lon - mess_min_lon);
+	lat = (lat - mess_min_lat + lat_diff * pad) / (1 + 2*pad) / lat_diff;
+	lon = (lon - mess_min_lon + lon_diff * pad) / (1 + 2*pad) / lon_diff;
+	assert(0.0 <= lat and lat < 1.0);
+	assert(0.0 <= lon and lon < 1.0);
+	return Pos {(u8)(lat * 256.0), (u8)(lon * 256.0)};
 }
 
 Buffer_view get_string_from_id(u8 id) {
@@ -157,6 +195,220 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 	into->trap_alloc(false);
 }
 
+void parse_sim_end(pugi::xml_node xml_obj, Buffer* into) {
+	assert(into);
+	auto& mess = into->emplace_ref<Message_Sim_End>();
+	narrow(mess.ranking, xml_obj.attribute("ranking").as_int());
+	narrow(mess.score,   xml_obj.attribute("score")  .as_int());
+}
+
+void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
+	assert(into);
+	auto xml_self = xml_perc.child("self");
+	auto xml_team = xml_perc.child("team");
+
+	
+	int space_needed = sizeof(Message_Request_Action);
+	{
+		constexpr int s = sizeof(u8);
+		space_needed += s + sizeof(Item_stack) * distance(xml_self.child("items"));
+		space_needed += s + sizeof(Item_stack) * distance(xml_self.child("items"));
+		space_needed += s + sizeof(Pos) * distance(xml_self.child("route"));
+		space_needed += s + sizeof(u8) * distance(xml_team.child("jobs-taken"));
+		space_needed += s + sizeof(u8) * distance(xml_team.child("jobs-posted"));
+		space_needed += 5 * s + sizeof(Facility) * distance(xml_team.child("facilities"));
+		space_needed += (sizeof(Charging_station) - sizeof(Facility))
+			* distance(xml_team.child("facilities").children("chargingStation"));
+
+		space_needed += 2 * s;
+		for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
+			space_needed += sizeof(Job_auction) + s
+				+ sizeof(Job_item) * distance(xml_job.child("items"));
+		}
+		for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
+			space_needed += sizeof(Job_priced) + s
+				+ sizeof(Job_item) * distance(xml_job.child("items"));
+		}
+	}
+	into->reserve_space(space_needed);
+	into->trap_alloc(true);
+
+	auto& perc = into->emplace_ref<Message_Request_Action>().perception;
+
+	if (!messages_lat_lon_initialized) {
+		add_bound_point(xml_self);
+		for (auto i: xml_perc.child("facilities")) {
+			add_bound_point(i);
+		}
+		for (auto i: xml_perc.child("entities")) {
+			add_bound_point(i);
+		}
+	}
+
+	narrow(perc.deadline, xml_perc.attribute("deadline").as_ullong());
+	narrow(perc.id,       xml_perc.attribute("id")      .as_int());
+	narrow(perc.simulation_step,
+		   xml_perc.child("simulation").attribute("step").as_int());
+	
+	auto& self = perc.self;
+	narrow(self.charge,     xml_self.attribute("charge")   .as_int());
+	narrow(self.load,       xml_self.attribute("load")     .as_int());
+	self.last_action = Action::get_id(xml_self.attribute("lastAction").value());
+	self.last_action_result = Action::get_result_id(
+		xml_self.attribute("lastActionResult").value());
+	self.pos = get_pos(xml_self);
+	char const* in_fac = xml_self.attribute("inFacility").value();
+	if (std::strcmp(in_fac, "none") == 0) {
+		self.in_facility = 0;
+	} else {		
+		self.in_facility = get_id(in_fac);
+	}
+	int fpos = xml_self.attribute("fPosition").as_int();
+	if (fpos == -1) {
+		self.f_position = -1;
+	} else {
+		narrow(self.f_position, fpos);
+	}
+	
+	self.items.init(into);
+	for (auto xml_item: xml_self.child("items").children("item")) {
+		Item_stack item;
+		item.item = get_id(xml_item.attribute("name").value());
+		narrow(item.amount, xml_item.attribute("amount").as_int());
+		self.items.push_back(item, into);
+	}
+	self.route.init(into);
+	for (auto xml_node: xml_self.child("route").children("n")) {
+		self.route.push_back(get_pos(xml_node), into);
+	}
+
+	auto& team = perc.team;
+
+	team.jobs_taken.init(into);
+	for (auto xml_job: xml_team.child("jobs-taken").children("job")) {
+		u8 job_id = get_id(xml_job.attribute("id").value());
+		team.jobs_taken.push_back(job_id, into);
+	}
+	team.jobs_posted.init(into);
+	for (auto xml_job: xml_team.child("jobs-posted").children("job")) {
+		u8 job_id = get_id(xml_job.attribute("id").value());
+		team.jobs_posted.push_back(job_id, into);
+	}
+
+	perc.entities.init(into);
+	for (auto xml_ent: xml_perc.child("entities").children("entity")) {
+		Entity ent;
+		ent.name = get_id(xml_ent.attribute("name").value());
+		ent.team = get_id(xml_ent.attribute("team").value());
+		ent.pos =  get_pos(xml_ent);
+		ent.role = get_id(xml_ent.attribute("role").value());
+		perc.entities.push_back(ent, into);
+	}
+	
+	perc.charging_stations.init(into);
+	for (auto xml_fac: xml_perc.child("facilities").children("charging_station")) {
+		Charging_station fac;
+		fac.name = get_id(xml_fac.attribute("name").value());
+		fac.pos = get_pos(xml_fac);
+		narrow(fac.rate,  xml_fac.attribute("rate") .as_int());
+		narrow(fac.price, xml_fac.attribute("price").as_int());
+		narrow(fac.slots, xml_fac.attribute("slots").as_int());
+		if (xml_fac.child("info")) {
+			narrow(fac.q_size, xml_fac.child("info").attribute("qSize").as_int());
+			assert(fac.q_size + 1);
+		} else {
+			fac.q_size = -1;
+		}
+		perc.charging_stations.push_back(fac, into);
+	}
+	perc.shops.init(into);
+	for (auto xml_fac: xml_perc.child("facilities").children("shop")) {
+		Shop fac;
+		fac.name = get_id(xml_fac.attribute("name").value());
+		fac.pos = get_pos(xml_fac);
+		perc.shops.push_back(fac, into);
+	}
+	perc.dump_locations.init(into);
+	for (auto xml_fac: xml_perc.child("facilities").children("dumpLocation")) {
+		Dump_location fac;
+		fac.name = get_id(xml_fac.attribute("name").value());
+		fac.pos = get_pos(xml_fac);
+		perc.dump_locations.push_back(fac, into);
+	}
+	perc.shops.init(into);
+	for (auto xml_fac: xml_perc.child("facilities").children("shop")) {
+		Shop fac;
+		fac.name = get_id(xml_fac.attribute("name").value());
+		fac.pos = get_pos(xml_fac);
+		perc.shops.push_back(fac, into);
+	}	
+	perc.storages.init(into);
+	for (auto xml_fac: xml_perc.child("facilities").children("storage")) {
+		Storage fac;
+		fac.name = get_id(xml_fac.attribute("name").value());
+		fac.pos = get_pos(xml_fac);
+		perc.storages.push_back(fac, into);
+	}
+	perc.workshops.init(into);
+	for (auto xml_fac: xml_perc.child("facilities").children("workshop")) {
+		Workshop fac;
+		fac.name = get_id(xml_fac.attribute("name").value());
+		fac.pos = get_pos(xml_fac);
+		perc.workshops.push_back(fac, into);
+	}
+
+	perc.auction_jobs.init(into);
+	for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
+		Job_auction job;
+		job.id      = get_id(xml_job.attribute("id")     .value());
+		job.storage = get_id(xml_job.attribute("storage").value());
+		narrow(job.begin,   xml_job.attribute("begin") .as_int());
+		narrow(job.end,     xml_job.attribute("end")   .as_int());
+		narrow(job.fine,    xml_job.attribute("fine")  .as_int());
+		narrow(job.max_bid, xml_job.attribute("maxBid").as_int());
+		perc.auction_jobs.push_back(job, into);
+	}
+	Job* job = perc.auction_jobs.begin();
+	for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
+		assert(job != perc.auction_jobs.end());
+		job->items.init(into);
+		for (auto xml_item: xml_job.child("items").children("item")) {
+			Job_item item;
+			item.item = get_id(xml_item.attribute("name").value());
+			narrow(item.amount,    xml_item.attribute("amount")   .as_int());
+			narrow(item.delivered, xml_item.attribute("delivered").as_int());
+			job->items.push_back(item, into);
+		}
+		++job;
+	}
+	
+	perc.priced_jobs.init(into);
+	for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
+		Job_priced job;
+		job.id      = get_id(xml_job.attribute("id")     .value());
+		job.storage = get_id(xml_job.attribute("storage").value());
+		narrow(job.begin,   xml_job.attribute("begin") .as_int());
+		narrow(job.end,     xml_job.attribute("end")   .as_int());
+		narrow(job.reward,  xml_job.attribute("reward").as_int());
+		perc.priced_jobs.push_back(job, into);
+	}
+	job = perc.priced_jobs.begin();
+	for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
+		assert(job != perc.priced_jobs.end());
+		job->items.init(into);
+		for (auto xml_item: xml_job.child("items").children("item")) {
+			Job_item item;
+			item.item = get_id(xml_item.attribute("name").value());
+			narrow(item.amount,    xml_item.attribute("amount")   .as_int());
+			narrow(item.delivered, xml_item.attribute("delivered").as_int());
+			job->items.push_back(item, into);
+		}
+		++job;
+	}
+		
+	into->trap_alloc(false);
+}
+
 void get_next_message(Socket& sock, Buffer* into) {
 	assert(into);
 
@@ -179,6 +431,12 @@ void get_next_message(Socket& sock, Buffer* into) {
 		parse_auth_response(xml_mess.child("authentication"), into);
 	} else if (std::strcmp(type, "sim-start") == 0) {
 		parse_sim_start(xml_mess.child("simulation"), into);
+	} else if (std::strcmp(type, "sim-end") == 0) {
+		parse_sim_end(xml_mess.child("sim-result"), into);
+	} else if (std::strcmp(type, "request-action") == 0) {
+		parse_request_action(xml_mess.child("perception"), into);
+	} else if (std::strcmp(type, "bye") == 0) {
+		into->emplace_ref<Message_Bye>();
 	} else {
 		assert(false);
 	}
@@ -239,8 +497,14 @@ int main() {
 	buffer.reset();
 	get_next_message(sock, &buffer);
 	auto& mess2 = buffer.get_ref<jup::Message_Sim_Start>();
-	jup::jout << "Actually got the simulation. Total number of steps: ";
-	jup::jout << mess2.simulation.steps << '\n';
+	jup::jout << "Got the simulation. Steps: "
+			  << mess2.simulation.steps << '\n';
+
+	buffer.reset();
+	get_next_message(sock, &buffer);
+	auto& mess3 = buffer.get_ref<jup::Message_Request_Action>();
+	jup::jout << "Got the message request. Step:"
+			  << mess3.perception.simulation_step << '\n';
 	
     return 0;
 }

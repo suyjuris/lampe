@@ -7,7 +7,7 @@ TARGET = jup
 LIBS = -lWs2_32 -static-libstdc++ -static-libgcc -static
 #LIBS = 
 CXX = g++
-CXXFLAGS = -g -Wall -Werror -pedantic -fmax-errors=1
+CXXFLAGS = -g -Wall -Werror -pedantic -fmax-errors=2
 CPPFLAGS = -include global.hpp -std=c++1y
 EXEEXT = .exe
 #EXEEXT =
