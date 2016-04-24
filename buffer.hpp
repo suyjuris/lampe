@@ -14,21 +14,19 @@ struct Buffer;
 struct Buffer_view {
 	Buffer_view(void const* data = nullptr, int size = 0):
 		m_data{data}, m_size{size} {assert(size >= 0);}
-	Buffer_view(void const* data = nullptr, size_t size = 0):
-		m_data{data}, m_size{(int)size} {assert(size >= 0);}
 	
 	Buffer_view(Buffer const& buf);
 	
 	template<typename T>
 	Buffer_view(std::vector<T> const& vec):
-		Buffer_view{vec.data(), vec.size() * sizeof(T)} {}
+		Buffer_view{vec.data(), (int)(vec.size() * sizeof(T))} {}
 	
 	template<typename T>
 	Buffer_view(std::basic_string<T> const& str):
-		Buffer_view{str.data(), str.size() * sizeof(T)} {}
+		Buffer_view{str.data(), (int)(str.size() * sizeof(T))} {}
 	
 	Buffer_view(char const* str):
-		Buffer_view{str, std::strlen(str)} {}
+		Buffer_view{str, (int)std::strlen(str)} {}
 
 	template<typename T>
 	static Buffer_view from_obj(T const& obj) {
@@ -40,6 +38,11 @@ struct Buffer_view {
 	char const* begin() const {return (char const*)m_data;}
 	char const* end()   const {return (char const*)m_data + m_size;}
 	char const* data()  const {return begin();}
+
+	char const* c_str() const {
+		assert(*(data() + size()) == 0);
+		return data();
+	}
 
 	u32 get_hash() const {
 		u32 result = 0;
@@ -92,12 +95,14 @@ public:
 
 	void reserve(int newcap) {
 		if (capacity() < newcap) {
+			newcap = std::max(newcap, capacity() * 2);
 			assert(!trap_alloc());
 			if (m_data) {
 				m_data = (char*)std::realloc(m_data, newcap);
 			} else {
 				m_data = (char*)std::malloc(newcap);
 			}
+			/* the trap_alloc flag is stored in m_capacity, don't disturb it */
 			m_capacity += newcap - capacity();
 			assert(m_data);
 		}
@@ -107,7 +112,7 @@ public:
 		if (!buf_size) return;
 		assert(buf_size > 0 and buf);
 		if (capacity() < m_size + buf_size)
-			reserve(std::max(m_size + buf_size, capacity() * 2));
+			reserve(m_size + buf_size);
 		
 		assert(capacity() >= m_size + buf_size);
 		std::memcpy(m_data + m_size, buf, buf_size);
@@ -178,7 +183,10 @@ public:
 		if (m_size < end) resize(end);
 		return *(new(m_data + offset) T {std::forward<Args>(args)...});
 	}
-
+	template <typename T, typename... Args>
+	T& emplace_back(Args&&... args) {
+		return emplace_ref<T>(size(), std::forward<Args>(args)...);
+	}
 
 	char* begin() {return m_data;}
 	char* end()   {return m_data + m_size;}

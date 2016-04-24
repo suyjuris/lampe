@@ -18,4 +18,10 @@ using u16 = std::uint16_t;
 using s8 = std::int8_t;
 using u8 = std::uint8_t;
 
+template <typename T, typename R>
+inline void narrow(T& into, R from) {
+	into = static_cast<T>(from);
+	assert(into == from and (into > 0) == (from > 0));
+}
+
 } /* end of namespace jup */

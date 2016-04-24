@@ -72,6 +72,12 @@ struct Action {
 		assert(false);
 		return -1;
 	}
+	static char const* get_name(int id) {
+		constexpr int count = sizeof(action_names) / sizeof("");
+		assert(0 <= id and id < count);
+		return action_names[id];
+	}
+		
 	static u8 get_result_id(char const* str) {
 		constexpr int count = sizeof(action_result_names) / sizeof("");
 		static_assert(count < 256, "Too many elements in action_result_names");
@@ -80,6 +86,11 @@ struct Action {
 		}
 		assert(false);
 		return -1;
+	}
+	static char const* get_result_name(int id) {
+		constexpr int count = sizeof(action_result_names) / sizeof("");
+		assert(0 <= id and id < count);
+		return action_result_names[id];
 	}
 
 	Action(u8 type): type{type} {}

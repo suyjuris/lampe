@@ -36,10 +36,19 @@ struct Message_Auth_Request: Message_Client2Server {
 	std::string username, password;				 
 };
 
+struct Message_Action: Message_Client2Server {
+	template <typename T>
+	Message_Action(u16 id, T const& action, Buffer* containing):
+		id{id}, action{action, containing} { type = ACTION; }
+
+	u16 id;
+	Flat_ref<Action> action;
+};
+
 struct Message_Auth_Response: Message_Server2Client {
 	Message_Auth_Response() { type = AUTH_RESPONSE; }
 	
-	bool succeeded = false;
+	bool succeeded;
 };
 
 struct Message_Sim_Start: Message_Server2Client {
@@ -66,7 +75,7 @@ struct Message_Request_Action: Message_Server2Client {
 };
 
 void init_messages();
-void get_next_message(Socket& sock, Buffer* into);
+u8 get_next_message(Socket& sock, Buffer* into);
 void send_message(Socket& sock, Message_Auth_Request const& mess);
 
 } /* end of namespace jup */

@@ -17,13 +17,22 @@ auto distance(Range const& range) {
 }
 
 struct Socket_writer: public pugi::xml_writer {
-	Socket_writer(Socket* sock): sock{sock} {}
+	Socket_writer(Socket* sock): sock{sock} {assert(sock);}
 
-	void write(const void* data, std::size_t size) override {
-		sock->send(Buffer_view {data, size});
+	void write(void const* data, std::size_t size) override {
+		sock->send(Buffer_view {data, (int)size});
 	}
 
 	Socket* sock;
+};
+struct Buffer_writer: public pugi::xml_writer {
+	Buffer_writer(Buffer* buf): buf{buf} {assert(buf);}
+
+	void write(void const* data, std::size_t size) override {
+		buf->append(data, size);
+	}
+
+	Buffer* buf;
 };
 
 static Buffer memory_for_messages;
@@ -37,10 +46,10 @@ void* allocate_pugi(size_t size) {
 	void* result = memory_for_messages.end();
 	std::size_t space = memory_for_messages.space();
 	if (std::align(align, size, result, space)) {
-		memory_for_messages.addsize((char*)result + size - memory_for_messages.begin());
+		memory_for_messages.resize((char*)result + size - memory_for_messages.begin());
 		return result;
 	} else {
-		jerr << "Warning: Buffer for pugi is not big enough\n";
+		jerr << "Warning: Buffer for pugi is not big enough, need additional " << size << '\n';
 		additional_buffer_needed += size;
 		return malloc(size);
 	}
@@ -54,7 +63,7 @@ void deallocate_pugi(void* ptr) {
 
 void init_messages() {
 	pugi::set_memory_management_functions(&allocate_pugi, &deallocate_pugi);
-	memory_for_messages.reserve(65536);
+	memory_for_messages.reserve(150 * 1024);
 
 	memory_for_strings.reserve(2048);
 	auto& map = memory_for_strings.emplace_ref<Flat_idmap>();
@@ -72,6 +81,7 @@ u8 get_id_from_string(Buffer_view str) {
 	return memory_for_strings.get_ref<Flat_idmap>().get_id(str);
 }
 
+static constexpr double mess_lat_lon_padding = 0.05;
 static bool messages_lat_lon_initialized = false;
 static double mess_min_lat;
 static double mess_max_lat;
@@ -95,7 +105,7 @@ void add_bound_point(pugi::xml_node xml_obj) {
 }
 
 Pos get_pos(pugi::xml_node xml_obj) {
-	constexpr static double pad = 0.05;
+	constexpr static double pad = mess_lat_lon_padding;
 	double lat = xml_obj.attribute("lat").as_double();
 	double lon = xml_obj.attribute("lon").as_double();
 	double lat_diff = (mess_max_lat - mess_min_lat);
@@ -107,20 +117,29 @@ Pos get_pos(pugi::xml_node xml_obj) {
 	return Pos {(u8)(lat * 256.0), (u8)(lon * 256.0)};
 }
 
+void set_xml_pos(Pos pos, pugi::xml_node* into) {
+	assert(into);
+
+	constexpr static double pad = mess_lat_lon_padding;
+	double lat_diff = (mess_max_lat - mess_min_lat);
+	double lon_diff = (mess_max_lon - mess_min_lon);
+	double lat = (double)pos.lat / 256.0;
+	double lon = (double)pos.lon / 256.0;
+	lat = lat * lat_diff * (1 + 2*pad) - lat_diff * pad + mess_min_lat;
+	lon = lon * lon_diff * (1 + 2*pad) - lon_diff * pad + mess_min_lon;
+	
+	into->append_attribute("lat") = lat;
+	into->append_attribute("lon") = lon;
+}
+
 Buffer_view get_string_from_id(u8 id) {
 	auto& map = memory_for_strings.get_ref<Flat_idmap>();
 	return map.get_value(id);
 }
 
-template <typename T, typename R>
-void narrow(T& into, R from) {
-	into = static_cast<T>(from);
-	assert(into == from and (into > 0) == (from > 0));
-}
-
 void parse_auth_response(pugi::xml_node xml_obj, Buffer* into) {
 	assert(into);
-	auto& mess = into->emplace_ref<Message_Auth_Response>();
+	auto& mess = into->emplace_back<Message_Auth_Response>();
 	auto succeeded = xml_obj.attribute("result").value();
 	if (std::strcmp(succeeded, "ok") == 0) {
 		mess.succeeded = true;
@@ -134,19 +153,22 @@ void parse_auth_response(pugi::xml_node xml_obj, Buffer* into) {
 void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 	assert(into);
 
+	int prev_size = into->size();
 	int space_needed = sizeof(Message_Sim_Start);
-	space_needed += sizeof(u16)
-		+ sizeof(u8) * distance(xml_obj.child("role"));
-	for (auto xml_prod: xml_obj.child("products")) {
-		space_needed += sizeof(Product)
-			+ sizeof(u16) * 2
-			+ sizeof(Item_stack) * distance(xml_prod.child("consumed"))
-			+ sizeof(u8) * distance(xml_prod.child("tools"));
+	{
+		constexpr int s = sizeof(u8);
+		space_needed += s + sizeof(u8) * distance(xml_obj.child("role"));
+		space_needed += s;
+		for (auto xml_prod: xml_obj.child("products")) {
+			space_needed += s * 2 + sizeof(Product)
+				+ sizeof(Item_stack) * distance(xml_prod.child("consumed"))
+				+ sizeof(u8) * distance(xml_prod.child("tools"));
+		}
 	}
 	into->reserve_space(space_needed);
 	into->trap_alloc(true);
 	
-	auto& sim = into->emplace_ref<Message_Sim_Start>().simulation;
+	auto& sim = into->emplace_back<Message_Sim_Start>().simulation;
 	narrow(sim.id,           xml_obj.attribute("id")         .as_int());
 	narrow(sim.seed_capital, xml_obj.attribute("seedCapital").as_int());
 	narrow(sim.steps,        xml_obj.attribute("steps")      .as_int());
@@ -173,8 +195,9 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 	}
 	Product* prod = sim.products.begin();
 	for (auto xml_prod: xml_obj.child("products").children("product")) {
+		assert(prod != sim.products.end());
+		prod->consumed.init(into);
 		if (auto xml_cons = xml_prod.child("consumed")) {
-			prod->consumed.init(into);
 			for (auto xml_item: xml_cons.children("item")) {
 				Item_stack stack;
 				stack.item = get_id(xml_item.attribute("name").value());
@@ -182,22 +205,25 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 				prod->consumed.push_back(stack, into);
 			}
 		}
-		if (auto xml_cons = xml_prod.child("tools")) {
-			prod->tools.init(into);
-			for (auto xml_tool: xml_cons.children("tool")) {
+		prod->tools.init(into);
+		if (auto xml_tools = xml_prod.child("tools")) {
+			for (auto xml_tool: xml_tools.children("item")) {
 				u8 id = get_id(xml_tool.attribute("name").value());
+				assert(xml_tool.attribute("amount").as_int() == 1);
 				prod->tools.push_back(id, into);
 			}
 		}
 		++prod;
 	}
+	assert(prod == sim.products.end());
 	
 	into->trap_alloc(false);
+	assert(into->size() - prev_size ==  space_needed);
 }
 
 void parse_sim_end(pugi::xml_node xml_obj, Buffer* into) {
 	assert(into);
-	auto& mess = into->emplace_ref<Message_Sim_End>();
+	auto& mess = into->emplace_back<Message_Sim_End>();
 	narrow(mess.ranking, xml_obj.attribute("ranking").as_int());
 	narrow(mess.score,   xml_obj.attribute("score")  .as_int());
 }
@@ -207,18 +233,18 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	auto xml_self = xml_perc.child("self");
 	auto xml_team = xml_perc.child("team");
 
-	
+	int prev_size = into->size();
 	int space_needed = sizeof(Message_Request_Action);
 	{
 		constexpr int s = sizeof(u8);
 		space_needed += s + sizeof(Item_stack) * distance(xml_self.child("items"));
-		space_needed += s + sizeof(Item_stack) * distance(xml_self.child("items"));
 		space_needed += s + sizeof(Pos) * distance(xml_self.child("route"));
 		space_needed += s + sizeof(u8) * distance(xml_team.child("jobs-taken"));
 		space_needed += s + sizeof(u8) * distance(xml_team.child("jobs-posted"));
-		space_needed += 5 * s + sizeof(Facility) * distance(xml_team.child("facilities"));
+		space_needed += s + sizeof(Entity) * distance(xml_perc.child("entities"));		
+		space_needed += 5 * s + sizeof(Facility) * distance(xml_perc.child("facilities"));
 		space_needed += (sizeof(Charging_station) - sizeof(Facility))
-			* distance(xml_team.child("facilities").children("chargingStation"));
+			* distance(xml_perc.child("facilities").children("chargingStation"));
 
 		space_needed += 2 * s;
 		for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
@@ -230,10 +256,11 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 				+ sizeof(Job_item) * distance(xml_job.child("items"));
 		}
 	}
+	
 	into->reserve_space(space_needed);
 	into->trap_alloc(true);
 
-	auto& perc = into->emplace_ref<Message_Request_Action>().perception;
+	auto& perc = into->emplace_back<Message_Request_Action>().perception;
 
 	if (!messages_lat_lon_initialized) {
 		add_bound_point(xml_self);
@@ -306,7 +333,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	}
 	
 	perc.charging_stations.init(into);
-	for (auto xml_fac: xml_perc.child("facilities").children("charging_station")) {
+	for (auto xml_fac: xml_perc.child("facilities").children("chargingStation")) {
 		Charging_station fac;
 		fac.name = get_id(xml_fac.attribute("name").value());
 		fac.pos = get_pos(xml_fac);
@@ -320,13 +347,6 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 			fac.q_size = -1;
 		}
 		perc.charging_stations.push_back(fac, into);
-	}
-	perc.shops.init(into);
-	for (auto xml_fac: xml_perc.child("facilities").children("shop")) {
-		Shop fac;
-		fac.name = get_id(xml_fac.attribute("name").value());
-		fac.pos = get_pos(xml_fac);
-		perc.shops.push_back(fac, into);
 	}
 	perc.dump_locations.init(into);
 	for (auto xml_fac: xml_perc.child("facilities").children("dumpLocation")) {
@@ -381,6 +401,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		}
 		++job;
 	}
+	assert(job == perc.auction_jobs.end());
 	
 	perc.priced_jobs.init(into);
 	for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
@@ -405,15 +426,19 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		}
 		++job;
 	}
+	assert(job == perc.priced_jobs.end());
 		
 	into->trap_alloc(false);
+	assert(into->size() - prev_size ==  space_needed);
 }
 
-void get_next_message(Socket& sock, Buffer* into) {
+u8 get_next_message(Socket& sock, Buffer* into) {
 	assert(into);
 
 	memory_for_messages.reset();
-	memory_for_messages.reserve(additional_buffer_needed + memory_for_messages.capacity());
+	memory_for_messages.trap_alloc(false);
+	memory_for_messages.reserve_space(additional_buffer_needed);
+	memory_for_messages.trap_alloc(true);
 	additional_buffer_needed = 0;
 
 	do {
@@ -436,23 +461,25 @@ void get_next_message(Socket& sock, Buffer* into) {
 	} else if (std::strcmp(type, "request-action") == 0) {
 		parse_request_action(xml_mess.child("perception"), into);
 	} else if (std::strcmp(type, "bye") == 0) {
-		into->emplace_ref<Message_Bye>();
+		into->emplace_back<Message_Bye>();
 	} else {
 		assert(false);
 	}
 	
 	auto& mess = into->get_ref<Message_Server2Client>();
 	narrow(mess.timestamp, xml_mess.attribute("timestamp").as_ullong());
+	return mess.type;
 }
 
-pugi::xml_node prep_message_xml(Message const& mess, pugi::xml_document* into) {
+pugi::xml_node prep_message_xml(Message const& mess, pugi::xml_document* into,
+								char const* type) {
 	assert(into);
 	auto xml_decl = into->prepend_child(pugi::node_declaration);
 	xml_decl.append_attribute("version") = "1.0";
 	xml_decl.append_attribute("encoding") = "UTF-8";
 
 	auto xml_mess = into->append_child("message");
-	xml_mess.append_attribute("type") = "auth-request";
+	xml_mess.append_attribute("type") = type;
 	return xml_mess;
 }
 void send_xml_message(Socket& sock, pugi::xml_document& doc) {
@@ -463,11 +490,174 @@ void send_xml_message(Socket& sock, pugi::xml_document& doc) {
 
 void send_message(Socket& sock, Message_Auth_Request const& mess) {
 	pugi::xml_document doc;
-	auto xml_mess = prep_message_xml(mess, &doc);
+	auto xml_mess = prep_message_xml(mess, &doc, "auth-request");
 	
 	auto xml_auth = xml_mess.append_child("authentication");
 	xml_auth.append_attribute("username") = mess.username.c_str();
 	xml_auth.append_attribute("password") = mess.password.c_str();
+	
+	send_xml_message(sock, doc);
+}
+
+char const* generate_action_param(Action const& action) {
+	pugi::xml_document doc;
+	auto param = doc.append_child("param");
+
+	auto write_item_stack_list = [&param](Flat_array<Item_stack> const& items) {
+		constexpr static int buf_len = 16;
+		constexpr static char const* str1("item");
+		constexpr static char const* str2("amount");
+			
+		memory_for_messages.reserve_space(
+			buf_len + std::max(strlen(str1), strlen(str2))
+		);
+		char* buf = memory_for_messages.end();
+		std::strcpy(buf, str1);
+		for (int i = 0; i < items.size(); ++i) {
+			std::snprintf(buf + strlen(str1), buf_len, "%d", i + 1);
+			param.append_attribute(buf) = get_string_from_id(items[i].item).c_str();
+		}
+		std::strcpy(buf, str2);
+		for (int i = 0; i < items.size(); ++i) {
+			std::snprintf(buf + strlen(str2), buf_len, "%d", i + 1);
+			param.append_attribute(buf) = items[i].amount;
+		}
+	};
+	
+	switch (action.type) {
+	case Action::GOTO: assert(false); break;
+	case Action::GOTO1: {
+		auto const& a = (Action_Goto1 const&) action;
+		param.append_attribute("facility") = get_string_from_id(a.facility).c_str();
+		break;
+	}
+	case Action::GOTO2: {
+		auto const& a = (Action_Goto2 const&) action;
+		set_xml_pos(a.pos, &param);
+		break;
+	}
+	case Action::BUY: {
+		auto const& a = (Action_Buy const&) action;
+		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
+		param.append_attribute("amount") = a.item.amount;
+		break;
+	}
+	case Action::GIVE: {
+		auto const& a = (Action_Give const&) action;
+		param.append_attribute("agent") = get_string_from_id(a.agent).c_str();
+		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
+		param.append_attribute("amount") = a.item.amount;
+		break;
+	}
+	case Action::RECIEVE: {
+		break;
+	}
+	case Action::STORE: {
+		auto const& a = (Action_Store const&) action;
+		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
+		param.append_attribute("amount") = a.item.amount;
+		break;
+	}
+	case Action::RETRIEVE: {
+		auto const& a = (Action_Retrieve const&) action;
+		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
+		param.append_attribute("amount") = a.item.amount;
+		break;
+	}
+	case Action::RETRIEVE_DELIVERED: {
+		auto const& a = (Action_Retrieve_delivered const&) action;
+		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
+		param.append_attribute("amount") = a.item.amount;
+		break;
+	}
+	case Action::DUMP: {
+		auto const& a = (Action_Dump const&) action;
+		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
+		param.append_attribute("amount") = a.item.amount;
+		break;
+	}
+	case Action::ASSEMBLE: {
+		auto const& a = (Action_Assemble const&) action;
+		param.append_attribute("item") = get_string_from_id(a.item).c_str();
+		break;
+	}
+	case Action::ASSIST_ASSEMBLE: {
+		auto const& a = (Action_Assist_assemble const&) action;
+		param.append_attribute("assembler") = get_string_from_id(a.assembler).c_str();
+		break;
+	}
+	case Action::DELIVER_JOB: {
+		auto const& a = (Action_Deliver_job const&) action;
+		param.append_attribute("job") = get_string_from_id(a.job).c_str();
+		break;
+	}
+	case Action::CHARGE: {
+		break;
+	}
+	case Action::BID_FOR_JOB: {
+		auto const& a = (Action_Bid_for_job const&) action;
+		param.append_attribute("job") = get_string_from_id(a.job).c_str();
+		param.append_attribute("price") = a.price;
+		break;
+	}
+	case Action::POST_JOB1: {
+		auto const& a = (Action_Post_job1 const&) action;
+		param.append_attribute("type") = "auction";
+		param.append_attribute("max_price") = a.max_price;
+		param.append_attribute("fine") = a.fine;
+		param.append_attribute("active_steps") = a.active_steps;
+		param.append_attribute("auction_steps") = a.auction_steps;
+		param.append_attribute("storage") = get_string_from_id(a.storage).c_str();
+		write_item_stack_list(a.items);
+		break;
+	}
+	case Action::POST_JOB2: {
+		auto const& a = (Action_Post_job2 const&) action;
+		param.append_attribute("type") = "priced";
+		param.append_attribute("price") = a.price;
+		param.append_attribute("active_steps") = a.active_steps;
+		param.append_attribute("storage") = get_string_from_id(a.storage).c_str();
+		write_item_stack_list(a.items);
+		break;
+	}
+	case Action::CALL_BREAKDOWN_SERVICE: {
+		break;
+	}
+	case Action::CONTINUE: {
+		break;
+	}
+	case Action::SKIP: {
+		break;
+	}
+	case Action::ABORT: {
+		break;
+	}
+	default: assert(false); break;
+	}
+
+	char* start = memory_for_messages.end();
+	Buffer_writer writer {&memory_for_messages};
+	param.print(writer, "", pugi::format_raw);
+	memory_for_messages.emplace_back<char>('\0');
+	char* end = memory_for_messages.end();	  
+	assert(end[-1] == 0);
+	static constexpr char const* str1 = "<param ";
+	assert(strncmp(start, str1, strlen(str1)) == 0);
+	start += strlen(str1);
+	end -= strlen("/>") + 1;
+	assert(strcmp(end, "/>") == 0);
+	*end = 0;
+	return start;
+}
+
+void send_message(Socket& sock, Message_Action const& mess) {
+	pugi::xml_document doc;
+	auto xml_mess = prep_message_xml(mess, &doc, "action");
+	
+	auto xml_auth = xml_mess.append_child("action");
+	xml_auth.append_attribute("id") = mess.id;
+	xml_auth.append_attribute("type") = Action::get_name(mess.action->type);
+	xml_auth.append_attribute("param") = generate_action_param(*mess.action);
 	
 	send_xml_message(sock, doc);
 }
@@ -485,8 +675,8 @@ int main() {
 
 	jup::Buffer buffer;
 	get_next_message(sock, &buffer);
-	auto& mess = buffer.get_ref<jup::Message_Auth_Response>();
-	if (mess.succeeded) {
+	auto& mess1 = buffer.get_ref<jup::Message_Auth_Response>();
+	if (mess1.succeeded) {
 		jup::jout << "Conected to server. Please start the simulation.\n";
 		jup::jout.flush();
 	} else {
@@ -500,11 +690,17 @@ int main() {
 	jup::jout << "Got the simulation. Steps: "
 			  << mess2.simulation.steps << '\n';
 
-	buffer.reset();
-	get_next_message(sock, &buffer);
-	auto& mess3 = buffer.get_ref<jup::Message_Request_Action>();
-	jup::jout << "Got the message request. Step:"
-			  << mess3.perception.simulation_step << '\n';
+	while (true) {
+		buffer.reset();
+		assert(get_next_message(sock, &buffer) == jup::Message::REQUEST_ACTION);
+		auto& mess = buffer.get_ref<jup::Message_Request_Action>();
+		jup::jout << "Got the message request. Step: "
+				  << mess.perception.simulation_step << '\n';
+
+		auto& answ = jup::memory_for_messages.emplace_back<jup::Message_Action>
+			( mess.perception.id, jup::Action_Skip {}, &jup::memory_for_messages );
+		jup::send_message(sock, answ);
+	}
 	
     return 0;
 }

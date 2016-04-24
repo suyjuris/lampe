@@ -6,9 +6,9 @@
 
 namespace jup {
 
-template <typename _T, typename _Offset_t = u16, typename _Size_t = u8>
+template <typename T, typename _Offset_t = u16, typename _Size_t = u8>
 struct Flat_array {
-	using T = _T;
+	using Type = T;
 	using Offset_t = _Offset_t;
 	using Size_t = _Size_t;
 	
@@ -21,10 +21,8 @@ struct Flat_array {
 		assert(containing);
 		assert((void*)containing->begin() <= (void*)this
 			   and (void*)this < (void*)containing->end());
-		auto diff = containing->end() - (char*)this;
-		assert(diff < std::numeric_limits<Offset_t>::max());
-		start = containing->end() - (char*)this;
-		containing->emplace_ref<Size_t>(containing->size());
+		narrow(start, containing->end() - (char*)this);
+		containing->emplace_back<Size_t>();
 	}
 
 	Size_t size() const { return m_size(); }
@@ -48,7 +46,7 @@ struct Flat_array {
 		assert(containing);
 		assert((void*)containing->begin() <= (void*)this
 			   and (void*)end() == (void*)containing->end());
-		containing->emplace_ref<T>(containing->size(), obj);
+		containing->emplace_back<T>(obj);
 		++m_size();
 	}
 
@@ -66,7 +64,8 @@ private:
 	}
 };
 
-template <typename Offset_t = u16, typename Id_t = u8, int Size = 256>
+template <typename Offset_t = u16, typename Id_t = u8, int Size = 256,
+		  bool add_zero = true>
 struct Flat_idmap_base {
 	Offset_t map[Size];
 	
@@ -101,6 +100,9 @@ struct Flat_idmap_base {
 			map[id] = containing->end() - (char*)this;
 			containing->append(Buffer_view::from_obj(obj.size()));
 			containing->append(obj);
+			if (add_zero) {
+				containing->append({"", 1});
+			}
 		}
 		return id;
 	}
@@ -114,5 +116,43 @@ struct Flat_idmap_base {
 };
 
 using Flat_idmap = Flat_idmap_base<>;
+
+
+template <typename T, typename _Offset_t = u16>
+struct Flat_ref {
+	using Type = T;
+	using Offset_t = _Offset_t;
+
+	Offset_t start;
+
+	Flat_ref(): start{0} {}
+	
+	template <typename _T>
+	Flat_ref(_T const& obj, Buffer* containing) {
+		init(obj, containing);
+	}
+
+	template <typename _T>
+	void init(_T const& obj, Buffer* containing) {
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			   and (void*)this < (void*)containing->end());
+		narrow(start, containing->end() - (char*)this);
+		containing->emplace_back<_T>(obj);
+	}	
+
+	T* ptr() {
+		assert(start);
+		return (T*)((char*)this + start);
+	}
+	T const* ptr() const {
+		assert(start);
+		return (T const*)((char*)this + start);
+	}
+	T* operator->() { return ptr(); }
+	T const* operator->() const { return ptr(); }
+	T& operator* () { return *ptr(); }
+	T const& operator* () const { return *ptr(); }	
+};
 
 } /* end of namespace jup */
