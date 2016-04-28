@@ -122,6 +122,11 @@ public:
 		append(buffer.data(), buffer.size());
 	}
 
+	void pop_front(int i) {
+		m_size -= i;
+		std::memcpy(m_data, m_data + i, m_size);
+	}
+
 	void resize(int nsize) {
 		m_size = nsize;
 		assert(m_size >= 0);

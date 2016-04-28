@@ -3,6 +3,8 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#include "global.hpp"
+
 #include <string>
 #include <vector>
 
@@ -110,7 +112,7 @@ int Socket::recv(Buffer* into) {
 
 } /* end of namespace jup */
     
-int test_main() {
+int socketsMain() {
 	jup::Socket_context context;
 
 	jup::Socket sock {"localhost", "12300"};

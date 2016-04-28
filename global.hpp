@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <ostream>
 
+
 namespace jup {
 
 extern std::ostream& jout;
