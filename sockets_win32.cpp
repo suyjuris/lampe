@@ -3,13 +3,12 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
-#include <string>
-#include <vector>
-
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
 #include "sockets.hpp"
+
+// This is the Windows Implementation of the sockets.hpp sockets.
 
 namespace jup {
 
@@ -21,13 +20,17 @@ Socket_context::~Socket_context() {
 	WSACleanup();
 }
 
+/**
+ * Helper, does some casting and asserting
+ */
 SOCKET& get_sock(Socket const& sock) {
 	static_assert(sizeof(sock.data) >= sizeof(SOCKET),
 				  "sock.data is not big enough");
 	return *((SOCKET*)sock.data);
 }
 
-Socket::Socket(std::string address, std::string port) {
+// see header
+Socket::Socket(Buffer_view address, Buffer_view port) {
     addrinfo hints = {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
@@ -62,16 +65,14 @@ Socket::Socket(std::string address, std::string port) {
 	initialized = true;
 }
 
+// see header
 void Socket::close() {
 	if (!initialized) return;
 	closesocket(get_sock(*this));
 	initialized = false;
 }
 
-Socket::~Socket() {
-	close();
-}
-
+// see header
 void Socket::send(Buffer_view buf) {
 	assert(initialized);
 	
@@ -82,9 +83,10 @@ void Socket::send(Buffer_view buf) {
 	}
 }
 
+// see header
 int Socket::recv(Buffer* into) {
-	assert(initialized);
 	assert(into);
+	assert(initialized);
 
 	int total_count = 0;
 	while(true) {
@@ -109,19 +111,3 @@ int Socket::recv(Buffer* into) {
 }
 
 } /* end of namespace jup */
-    
-int test_main() {
-	jup::Socket_context context;
-
-	jup::Socket sock {"localhost", "12300"};
-
-	std::string sendmsg {"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><message type=\"auth-request\"><authentication password=\"1\" username=\"a1\"/></message>"};
-	sock.send(sendmsg);
-	sock.send({"", 1});
-	
-	jup::Buffer buffer;
-	sock.recv(&buffer);
-	jup::jout << buffer.data() << '\n';
-	
-    return 0;
-}
