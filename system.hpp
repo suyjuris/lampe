@@ -29,9 +29,9 @@ namespace jup {
 
 		int getMsg(Buffer* into);
 
+		void waitFor(const char* pattern);
+
 	};
-
-
 
 }
 

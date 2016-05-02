@@ -4,30 +4,17 @@
 #include "system.hpp"
 #include <conio.h>
 
-bool findBeginning(const char* c, const char* p) {
-	int i = 0;
-	while (p[i] != 0) {
-		if (p[i] != c[i])
-			return false;
-		i++;
-	}
-	return true;
-}
+jup::Process *server;
+
+
 
 int main() {
 
-	jup::Process server("bash --login");
+	server = new jup::Process("bash --login");
 	
-	server.send(jup::Buffer_view{ "cd /d/lampe/sim/massim/scripts/\n./startServer.sh\n0\n" });
+	server->send(jup::Buffer_view{ "cd /d/lampe/sim/massim/scripts/\n./startServer.sh\n0\n" });
 
-	jup::Buffer read;
-	do {
-		read.reset();
-		while (server.getMsg(&read) == 0) {
-		}
-		read.append("\0", 1);
-		jup::jout << read.data();
-	} while (!findBeginning(read.data(), "[ NORMAL ]  ##   InetSocketListener created"));
+	server->waitFor("[ NORMAL ]  ##   InetSocketListener created");
 
 
 	jup::init_messages();
@@ -36,27 +23,11 @@ int main() {
 	assert(sock);
 	jup::send_message(sock, jup::Message_Auth_Request{ "a1", "1" });
 
-
-	do {
-		read.reset();
-		while (server.getMsg(&read) == 0)
-			;
-		read.append("\0", 1);
-		jup::jout << read.data();
-	} while (!findBeginning(read.data(), "[ NORMAL ]  ##   Please press ENTER to start the tournament"));
+	server->waitFor("[ NORMAL ]  ##   Please press ENTER to start the tournament");
 
 	getch();
 
-	server.send("\n");
-
-	while (true) {
-		read.reset();
-		while (server.getMsg(&read) == 0)
-			;
-		read.append("\0", 1);
-		jup::jout << read.data();
-	}
-
+	server->send("\n");
 	return 0;
 }
 

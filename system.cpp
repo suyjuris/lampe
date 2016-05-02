@@ -70,4 +70,23 @@ namespace jup {
 		return copied;
 	}
 
+	bool findBeginning(const char* c, const char* p) {
+		int i = 0;
+		while (p[i] != 0) {
+			if (p[i] != c[i])
+				return false;
+			i++;
+		}
+		return true;
+	}
+
+	void Process::waitFor(const char* pattern) {
+		Buffer buf;
+		do {
+			while (getMsg(&buf) == 0)
+				;
+			
+		} while (!findBeginning(buf.data(), pattern));
+	}
+
 }
