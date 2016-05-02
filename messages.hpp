@@ -30,6 +30,10 @@ struct Message_Server2Client: Message {
 };
 
 struct Message_Auth_Request: Message_Client2Server {
+	/**
+	 * This uses strings for now, as this message is only sent a handfull of
+	 * times and not performance critical.
+	 */
 	Message_Auth_Request(std::string user, std::string pass):
 		username{user}, password{pass} { type = AUTH_REQUEST; }
 	
@@ -37,6 +41,10 @@ struct Message_Auth_Request: Message_Client2Server {
 };
 
 struct Message_Action: Message_Client2Server {
+	/**
+	 * action is an arbitrary subclass of Action, it is copied to the end of the
+	 *  Buffer.
+	 */
 	template <typename T>
 	Message_Action(u16 id, T const& action, Buffer* containing):
 		id{id}, action{action, containing} { type = ACTION; }
@@ -74,8 +82,29 @@ struct Message_Request_Action: Message_Server2Client {
 	Perception perception;
 };
 
+/**
+ * Performs various initlization functions. Call before get_next_message or send_message.
+ */
 void init_messages();
+
+/**
+ * Return the id of the string. The empty string is guaranteed to have the id
+ * 0. Different strings of different domains may have the same id (currently
+ * they don't). If the str is not mapped, the behaviour is undefined.
+ */
+u8 get_id_from_string(Buffer_view str);
+
+
+/**
+ * Writes the next message in the Socket into the end of the Buffer. Returns the
+ * type of the Message read. Blocks.
+ */
 u8 get_next_message(Socket& sock, Buffer* into);
+
+/**
+ * Send a message into the socket.
+ */
 void send_message(Socket& sock, Message_Auth_Request const& mess);
+void send_message(Socket& sock, Message_Action const& mess);
 
 } /* end of namespace jup */
