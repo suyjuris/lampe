@@ -184,6 +184,11 @@ public:
 		append(buffer.data(), buffer.size());
 	}
 
+	void pop_front(int i) {
+		m_size -= i;
+		std::memcpy(m_data, m_data + i, m_size);
+	}
+
 	/**
 	 * Change the size of the Buffer. Useful if you write to the memory
 	 * manually.

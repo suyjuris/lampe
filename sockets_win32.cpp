@@ -3,6 +3,11 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#include "global.hpp"
+
+#include <string>
+#include <vector>
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -111,3 +116,19 @@ int Socket::recv(Buffer* into) {
 }
 
 } /* end of namespace jup */
+    
+int socketsMain() {
+	jup::Socket_context context;
+
+	jup::Socket sock {"localhost", "12300"};
+
+	std::string sendmsg {"<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"no\"?><message type=\"auth-request\"><authentication password=\"1\" username=\"a1\"/></message>"};
+	sock.send(sendmsg);
+	sock.send({"", 1});
+	
+	jup::Buffer buffer;
+	sock.recv(&buffer);
+	jup::jout << buffer.data() << '\n';
+	
+    return 0;
+}

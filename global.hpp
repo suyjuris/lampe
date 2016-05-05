@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <ostream>
 
+
 namespace jup {
 
 // Use these facilities for general output. They may redirect into a logfile later on.
