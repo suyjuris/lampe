@@ -36,7 +36,7 @@ SOCKET& get_sock(Socket const& sock) {
 }
 
 // see header
-Socket::Socket(Buffer_view address, Buffer_view port) {
+void Socket::init(Buffer_view address, Buffer_view port) {
     addrinfo hints = {};
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;

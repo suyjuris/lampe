@@ -56,6 +56,11 @@ struct Flat_array {
 	T const* begin() const { return (T const*)(&m_size() + 1); }
 	T const* end()   const { return begin() + size(); }
 
+    T& front() {assert(size()); return *begin();}
+    T& back()  {assert(size()); return end()[-1];}
+    T const& front() const {assert(size()); return *begin();}
+    T const& back()  const {assert(size()); return end()[-1];}
+
 	/**
 	 * Return the element. Does bounds-checking.
 	 */

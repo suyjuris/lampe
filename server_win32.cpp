@@ -4,6 +4,7 @@
 #include <io.h>
 
 #include "server.hpp"
+#include "messages.hpp"
 
 namespace jup {
 
@@ -45,63 +46,141 @@ bool find_file_not_containing(
 }
 
 Server::Server(c_str directory, c_str config_par) {
-    Buffer buffer {256};
+    general_buffer.reserve(2048);
 
-    int package_pattern = buffer.size();
-    buffer.append(directory);
-    buffer.append("\\target\\agentcontest-*.jar");
-    buffer.append("", 1);
+    int package_pattern = general_buffer.size();
+    general_buffer.append(directory);
+    general_buffer.append("\\target\\agentcontest-*.jar");
+    general_buffer.append("", 1);
                
-    int package = buffer.size();
-    buffer.append("..\\target\\");
-    if (!find_file_not_containing(buffer.data() + package_pattern, {"sources", "javadoc"}, &buffer)) {
+    int package = general_buffer.size();
+    general_buffer.append("..\\target\\");
+    if (!find_file_not_containing(general_buffer.data() + package_pattern,
+                                  {"sources", "javadoc"}, &general_buffer)) {
         jerr << "Could not find server jar\n";
         assert(false);
     }
-    jerr << "Using package: " << buffer.data() + package << '\n';
+    jerr << "Using package: " << general_buffer.data() + package << '\n';
 
     int config;
     if (config_par) {
-        config = buffer.size();
-        buffer.append(config_par);
+        config = general_buffer.size();
+        general_buffer.append(config_par);
     } else {
-        int config_pattern = buffer.size();
-        buffer.append(directory);
-        buffer.append("\\scripts\\conf\\2015*");
-        buffer.append("", 1);
+        int config_pattern = general_buffer.size();
+        general_buffer.append(directory);
+        general_buffer.append("\\scripts\\conf\\2015*");
+        general_buffer.append("", 1);
 
-        config = buffer.size();
-        buffer.append("conf\\");
-        if (!find_file_not_containing(buffer.data() + config_pattern, {"random"}, &buffer)) {
+        config = general_buffer.size();
+        general_buffer.append("conf\\");
+        if (!find_file_not_containing(general_buffer.data() + config_pattern,
+                                      {"random"}, &general_buffer)) {
             jerr << "Could not find config file\n";
             assert(false);
         }
     }
-    jerr << "Using configuration: " << buffer.data() + config << '\n';
+    jerr << "Using configuration: " << general_buffer.data() + config << '\n';
 
-    int cmdline = buffer.size();
-    buffer.append("java -ea -Dcom.sun.management.jmxremote -Xss2000k -Xmx600M -DentityExpansionLimi"
-                  "t=1000000 -DelementAttributeLimit=1000000 -Djava.rmi.server.hostname=TST -jar ");
-    buffer.append(buffer.data() + package);
-    buffer.append(" --conf ");
-    buffer.append(buffer.data() + config);
-    buffer.append("", 1);
+    int cmdline = general_buffer.size();
+    general_buffer.append("java -ea -Dcom.sun.management.jmxremote -Xss2000k -X"
+        "mx600M -DentityExpansionLimit=1000000 -DelementAttributeLimit=1000000 "
+        "-Djava.rmi.server.hostname=TST -jar ");
+    general_buffer.append(general_buffer.data() + package);
+    general_buffer.append(" --conf ");
+    general_buffer.append(general_buffer.data() + config);
+    general_buffer.append("", 1);
 
-    int dir = buffer.size();
-    buffer.append(directory);
-    buffer.append("\\scripts");
-    buffer.append("", 1);
-                  
+    int dir = general_buffer.size();
+    general_buffer.append(directory);
+    general_buffer.append("\\scripts");
+    general_buffer.append("", 1);
+    
     proc.write_to_stdout = true;
-    proc.init(buffer.data() + cmdline, buffer.data() + dir);
+    proc.init(general_buffer.data() + cmdline, general_buffer.data() + dir);
     
 	proc.waitFor("[ NORMAL ]  ##   InetSocketListener created");
+
+    general_buffer.reset();
+    
+    agents_offset = general_buffer.size();
+    general_buffer.emplace_back<Flat_array<Agent_data>>();
+    agents().init(&general_buffer);
 }
 
-void Server::start_sim() {
+
+bool Server::register_agent(Agent const& agent, char const* name, char const* password) {
+    assert(name);
+    if (!password) {
+        password = "1";
+    }
+    
+    agents().push_back(Agent_data {}, &general_buffer);
+    Agent_data& data = agents().back();
+
+    data.agent = agent;
+    data.name = name;
+    data.socket.init("localhost", "12300");
+    if (!data.socket) { return false; }
+
+    send_message(data.socket, Message_Auth_Request {name, password});
+
+    // Put this onto the step_buffer, as the initialization of the agents() list
+    // in the general_buffer has not been completed.
+    auto& answer = get_next_message_ref<Message_Auth_Response>(data.socket, &step_buffer);
+    if (!answer.succeeded) {
+        // TODO: don't print the password onto the console, that's generally
+        // dumb (maybe print stars instead)
+        jerr << "Warning: Agent named " << name << " with password "
+             << password << " could not log in\n";
+        return false;
+    }
+
+    return true;
+}
+
+void Server::run_simulation() {
     proc.write_to_buffer = false;
     proc.write_to_stdout = true;
 	proc.send("\n");
+    
+    int max_steps = -1;
+    for (Agent_data& i: agents()) {
+        auto& mess = get_next_message_ref<Message_Sim_Start>(i.socket, &general_buffer);
+        if (max_steps != -1) {
+            assert(max_steps == mess.simulation.steps);
+        } else {
+            max_steps = mess.simulation.steps;
+        }
+        i.simulation = &mess.simulation;
+    }
+
+    for (int step = 0; step < max_steps; ++step) {
+        if (step == max_steps - 1) {
+            proc.write_to_buffer = true;
+        }
+        
+        step_buffer.reset();
+        for (Agent_data& i: agents()) {
+            auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
+            assert(mess.perception.simulation_step == step);
+            
+            Action const& action = i.agent(*i.simulation, mess.perception);
+                 
+            auto& answ = step_buffer.emplace_back<Message_Action>(
+                mess.perception.id, action, &step_buffer
+            );
+            send_message(i.socket, answ);
+        }
+    }
+
+    proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
+    
+    for (Agent_data& i: agents()) {
+        auto& mess = get_next_message_ref<Message_Sim_End>(i.socket, &general_buffer);
+        jout << "The simulation has ended. Agent " << i.name << " has a ranking of "
+             << (int)mess.ranking << " and a score of " << mess.score << '\n';
+    }
 }
 
 } /* end of namespace jup */

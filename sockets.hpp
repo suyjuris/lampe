@@ -26,15 +26,26 @@ struct Socket_context {
  * next time you try to do something with the socket.
  */
 struct Socket {
+    Socket() {}
+    
 	/**
 	 * Constructs the socket. Any errors are printed as warnings to the
 	 * console. If that happens, the resulting socket is not valid. Check that.
 	 *
 	 * address and port MUST BE zero-terminated strings.
 	 */
-	Socket(Buffer_view /* c_str */ address, Buffer_view /* c_str */ port);
+	Socket(Buffer_view /* c_str */ address, Buffer_view /* c_str */ port) {
+        init(address, port);
+    }
+    void init(Buffer_view /* c_str */ address, Buffer_view /* c_str */ port);
 
+	
+	/**
+	 * Make the socket invalid, release any resources. If the socket already was
+	 * invalid, do nothing.
+	 */
 	~Socket() { close(); }
+	void close();
 
 	// operators and move semantics belong here if needed
 	
@@ -43,12 +54,6 @@ struct Socket {
 	 */
 	bool is_valid() const { return initialized; }
 	operator bool() const { return is_valid(); }
-	
-	/**
-	 * Make the socket invalid, release any resources. If the socket already was
-	 * invalid, do nothing.
-	 */
-	void close();
 
 	/**
 	 * Send data over the socket.

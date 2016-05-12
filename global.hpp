@@ -32,7 +32,7 @@ using c_str = char const*;
 template <typename T, typename R>
 inline void narrow(T& into, R from) {
 	into = static_cast<T>(from);
-	assert(into == from and (into > 0) == (from > 0));
+	assert(static_cast<R>(into) == from and (into > 0) == (from > 0));
 }
 
 /**

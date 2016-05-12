@@ -431,20 +431,20 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		narrow(job.max_bid, xml_job.attribute("maxBid").as_int());
 		perc.auction_jobs.push_back(job, into);
 	}
-	Job* job = perc.auction_jobs.begin();
+	Job_auction* joba = perc.auction_jobs.begin();
 	for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
-		assert(job != perc.auction_jobs.end());
-		job->items.init(into);
+		assert(joba != perc.auction_jobs.end());
+		joba->items.init(into);
 		for (auto xml_item: xml_job.child("items").children("item")) {
 			Job_item item;
 			item.item = get_id(xml_item.attribute("name").value());
 			narrow(item.amount,    xml_item.attribute("amount")   .as_int());
 			narrow(item.delivered, xml_item.attribute("delivered").as_int());
-			job->items.push_back(item, into);
+			joba->items.push_back(item, into);
 		}
-		++job;
+		++joba;
 	}
-	assert(job == perc.auction_jobs.end());
+	assert(joba == perc.auction_jobs.end());
 	
 	perc.priced_jobs.init(into);
 	for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
@@ -456,20 +456,20 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		narrow(job.reward,  xml_job.attribute("reward").as_int());
 		perc.priced_jobs.push_back(job, into);
 	}
-	job = perc.priced_jobs.begin();
+	Job_priced* jobp = perc.priced_jobs.begin();
 	for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
-		assert(job != perc.priced_jobs.end());
-		job->items.init(into);
+		assert(jobp != perc.priced_jobs.end());
+		jobp->items.init(into);
 		for (auto xml_item: xml_job.child("items").children("item")) {
 			Job_item item;
 			item.item = get_id(xml_item.attribute("name").value());
 			narrow(item.amount,    xml_item.attribute("amount")   .as_int());
 			narrow(item.delivered, xml_item.attribute("delivered").as_int());
-			job->items.push_back(item, into);
+			jobp->items.push_back(item, into);
 		}
-		++job;
+		++jobp;
 	}
-	assert(job == perc.priced_jobs.end());
+	assert(jobp == perc.priced_jobs.end());
 		
 	into->trap_alloc(false);
 	assert(into->size() - prev_size ==  space_needed);

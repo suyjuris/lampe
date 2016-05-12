@@ -1,5 +1,7 @@
 #pragma once
 
+#include "global.hpp"
+
 #include "flat_data.hpp"
 
 namespace jup {	

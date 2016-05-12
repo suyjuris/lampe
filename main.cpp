@@ -16,7 +16,7 @@ std::thread::id main_thread_id;
 
 
 /**
- * Close the java process on termination
+ * Close the java process on termination. This is easier said than done.
  */
 void handle_sigint(int sig) {
     //if (std::this_thread::get_id() != main_thread_id) return;
@@ -67,42 +67,15 @@ int main(int argc, c_str const* argv) {
     
 	init_messages();
 	Socket_context socket_context;
-    
-	Socket sock {"localhost", "12300"};
-	assert(sock);
-	send_message(sock, Message_Auth_Request {"a1", "1"});
 
-    Buffer buffer;
-    {
-        buffer.reset();
-        auto& mess = get_next_message_ref<Message_Auth_Response>(sock, &buffer);
-        if (mess.succeeded) {
-            jout << "Connected to server.\n";
-        } else {
-            jout << "Invalid authentification.\n";
+    for (auto i: {"a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"}) {
+        if (!server->register_agent(&dummy_agent, i)) {
+            jerr << "Error: Could not connect agent, exiting.\n";
             return 1;
         }
     }
-
-    server->start_sim();
-
-    int simulation_steps;
-    {
-        auto& mess = get_next_message_ref<Message_Sim_Start>(sock, &buffer);
-        simulation_steps = mess.simulation.steps;
-    }
-
-    for (int step = 0; step < simulation_steps; ++step) {
-        buffer.reset();
-        auto& mess = get_next_message_ref<Message_Request_Action>(sock, &buffer);
-        assert(mess.perception.simulation_step == step);
-        
-		auto& answ = buffer.emplace_back<Message_Action>
-			( mess.perception.id, Action_Skip {}, &buffer );
-		send_message(sock, answ);
-    }
+    server->run_simulation();
 
     delete server;
-    
-	return 0;
+    return 0;
 }

@@ -74,7 +74,7 @@ struct Message_Sim_End: Message_Server2Client {
 	Message_Sim_End() { type = Type_value; }
 
 	u8 ranking;
-	u8 score;
+	u32 score;
 };
 
 struct Message_Bye: Message_Server2Client {
