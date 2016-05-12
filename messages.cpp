@@ -289,15 +289,15 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
         auto xml_facs = xml_perc.child("facilities");
 		space_needed += 5 * s
             + sizeof(Charging_station) * distance(xml_facs.children("chargingStation"))
-            + sizeof(Dump_location) * distance(xml_facs.children("dumpLocation"))
-            + sizeof(Shop) * distance(xml_facs.children("shop"))
-            + sizeof(Storage) * distance(xml_facs.children("storage"))
-            + sizeof(Workshop) * distance(xml_facs.children("workshop"));
+            + sizeof(Dump_location)    * distance(xml_facs.children("dumpLocation"))
+            + sizeof(Shop)             * distance(xml_facs.children("shop"))
+            + sizeof(Storage)          * distance(xml_facs.children("storage"))
+            + sizeof(Workshop)         * distance(xml_facs.children("workshop"));
         
-		for (auto xml_fac : xml_perc.child("facilities").children("shop")) {
+		for (auto xml_fac : xml_facs.children("shop")) {
 			space_needed += s + sizeof(Shop_item) * distance(xml_fac.children("item"));
 		}
-		for (auto xml_fac : xml_perc.child("facilities").children("storage")) {
+		for (auto xml_fac : xml_facs.children("storage")) {
 			space_needed += s + sizeof(Storage_item) * distance(xml_fac.children("item"));
 		}
 
@@ -423,7 +423,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	for (auto xml_fac : xml_perc.child("facilities").children("shop")) {
 		assert(shop != perc.shops.end());
 		shop->items.init(into);
-		for (auto xml_item : xml_fac.child("items").children("item")) {
+		for (auto xml_item : xml_fac.children("item")) {
 			Shop_item item;
 			item.item = get_id(xml_item.attribute("name").value());
 			narrow(item.amount, xml_item.attribute("amount").as_int());
@@ -446,7 +446,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	for (auto xml_fac : xml_perc.child("facilities").children("storage")) {
 		assert(storage != perc.storages.end());
 		storage->items.init(into);
-		for (auto xml_item : xml_fac.child("items").children("item")) {
+		for (auto xml_item : xml_fac.children("item")) {
 			Storage_item item;
 			item.item = get_id(xml_item.attribute("name").value());
 			narrow(item.amount, xml_item.attribute("stored").as_int());
@@ -517,7 +517,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	assert(jobp == perc.priced_jobs.end());
 		
 	into->trap_alloc(false);
-	assert(into->size() - prev_size <= space_needed);
+	assert(into->size() - prev_size == space_needed);
 }
 
 // see header
