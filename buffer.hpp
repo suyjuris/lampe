@@ -124,6 +124,9 @@ public:
 	 * These do what you would expect them to.
 	 */
 	Buffer() {}
+    explicit Buffer(int capacity) {
+        reserve(capacity);
+    }
 	Buffer(Buffer const& buf) { append(buf); }
 	Buffer(Buffer&& buf) {
 		m_data = buf.m_data;
@@ -301,6 +304,18 @@ public:
 	char const* begin() const {return m_data;}
 	char const* end()   const {return m_data + m_size;}
 	char const* data()  const {return begin();}
+
+    /**
+	 * Provide access to the buffer, with bounds checking.
+	 */
+	char& operator[] (int pos) {
+		assert(0 <= pos and pos < size());
+		return data()[pos];
+	}
+	char operator[] (int pos) const {
+		assert(0 <= pos and pos < size());
+		return data()[pos];
+	}
 
 private:
 	char* m_data = nullptr;

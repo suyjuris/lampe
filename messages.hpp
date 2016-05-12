@@ -41,43 +41,50 @@ struct Message_Auth_Request: Message_Client2Server {
 };
 
 struct Message_Action: Message_Client2Server {
+    static constexpr int Type_value = ACTION;
+    
 	/**
 	 * action is an arbitrary subclass of Action, it is copied to the end of the
 	 *  Buffer.
 	 */
 	template <typename T>
 	Message_Action(u16 id, T const& action, Buffer* containing):
-		id{id}, action{action, containing} { type = ACTION; }
+		id{id}, action{action, containing} { type = Type_value; }
 
 	u16 id;
 	Flat_ref<Action> action;
 };
 
 struct Message_Auth_Response: Message_Server2Client {
-	Message_Auth_Response() { type = AUTH_RESPONSE; }
+    static constexpr int Type_value = AUTH_RESPONSE;
+	Message_Auth_Response() { type = Type_value; }
 	
 	bool succeeded;
 };
 
 struct Message_Sim_Start: Message_Server2Client {
-	Message_Sim_Start() { type = SIM_START; }
+    static constexpr int Type_value = SIM_START;
+	Message_Sim_Start() { type = Type_value; }
 	
 	Simulation simulation;
 };
 
 struct Message_Sim_End: Message_Server2Client {
-	Message_Sim_End() { type = SIM_END; }
+    static constexpr int Type_value = SIM_END;
+	Message_Sim_End() { type = Type_value; }
 
 	u8 ranking;
 	u8 score;
 };
 
 struct Message_Bye: Message_Server2Client {
-	Message_Bye() { type = BYE; }
+    static constexpr int Type_value = BYE;
+	Message_Bye() { type = Type_value; }
 };
 
 struct Message_Request_Action: Message_Server2Client {
-	Message_Request_Action() { type = REQUEST_ACTION; }
+    static constexpr int Type_value = REQUEST_ACTION;
+	Message_Request_Action() { type = Type_value; }
 
 	Perception perception;
 };
@@ -100,6 +107,20 @@ u8 get_id_from_string(Buffer_view str);
  * type of the Message read. Blocks.
  */
 u8 get_next_message(Socket& sock, Buffer* into);
+
+/**
+ * Writes the next message in the Socket into the end of the Buffer. Returns the
+ * Message if it is of the specified type, else the behaviour is undefined.
+ */
+template <typename T>
+T& get_next_message_ref(Socket& sock, Buffer* into) {
+    assert(into);
+
+    int pos = into->size();
+    auto type = get_next_message(sock, into);
+    assert(type == T::Type_value);
+    return into->get<T>(pos);
+}
 
 /**
  * Send a message into the socket.

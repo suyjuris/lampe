@@ -21,6 +21,9 @@ using u16 = std::uint16_t;
 using s8 = std::int8_t;
 using u8 = std::uint8_t;
 
+// Zero terminated, read-only string
+using c_str = char const*;
+
 // Narrow a value, asserting that the conversion is valid.
 template <typename T, typename R>
 inline void narrow(T& into, R from) {

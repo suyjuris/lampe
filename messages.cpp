@@ -725,7 +725,7 @@ void send_message(Socket& sock, Message_Action const& mess) {
 
 } /* end of namespace jup */
 
-int messagesMain() {
+int messages_main() {
 	jup::Socket_context context;
 	jup::Socket sock {"localhost", "12300"};
 	if (!sock) { return 1; }
