@@ -288,6 +288,10 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		space_needed += 5 * s + sizeof(Facility) * distance(xml_perc.child("facilities"));
 		space_needed += (sizeof(Charging_station) - sizeof(Facility))
 			* distance(xml_perc.child("facilities").children("chargingStation"));
+		space_needed += (sizeof(Dump_location) - sizeof(Facility))
+			* distance(xml_perc.child("facilities").children("dumpLocation"));
+		space_needed += (sizeof(Workshop) - sizeof(Facility))
+			* distance(xml_perc.child("facilities").children("workshop"));
 
 		space_needed += 2 * s;
 		for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
@@ -297,6 +301,14 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
 			space_needed += sizeof(Job_priced) + s
 				+ sizeof(Job_item) * distance(xml_job.child("items"));
+		}
+		for (auto xml_job : xml_perc.children("shop")) {
+			space_needed += sizeof(Shop) + s
+				+ sizeof(Shop_item) * distance(xml_job.children("item"));
+		}
+		for (auto xml_job : xml_perc.children("storage")) {
+			space_needed += sizeof(Storage) + s
+				+ sizeof(Storage_item) * distance(xml_job.children("item"));
 		}
 	}
 	
@@ -396,6 +408,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		Dump_location fac;
 		fac.name = get_id(xml_fac.attribute("name").value());
 		fac.pos = get_pos(xml_fac);
+		narrow(fac.price, xml_fac.attribute("price").as_int());
 		perc.dump_locations.push_back(fac, into);
 	}
 	perc.shops.init(into);
@@ -405,6 +418,21 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		fac.pos = get_pos(xml_fac);
 		perc.shops.push_back(fac, into);
 	}	
+	Shop* shop = perc.shops.begin();
+	for (auto xml_fac : xml_perc.child("facilities").children("shop")) {
+		assert(shop != perc.shops.end());
+		shop->items.init(into);
+		for (auto xml_item : xml_fac.child("items").children("item")) {
+			Shop_item item;
+			item.item = get_id(xml_item.attribute("name").value());
+			narrow(item.amount, xml_item.attribute("amount").as_int());
+			narrow(item.cost, xml_item.attribute("cost").as_int());
+			narrow(item.restock, xml_item.attribute("restock").as_int());
+			shop->items.push_back(item, into);
+		}
+		++shop;
+	}
+	assert(shop == perc.shops.end());
 	perc.storages.init(into);
 	for (auto xml_fac: xml_perc.child("facilities").children("storage")) {
 		Storage fac;
@@ -412,6 +440,20 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		fac.pos = get_pos(xml_fac);
 		perc.storages.push_back(fac, into);
 	}
+	Storage* storage = perc.storages.begin();
+	for (auto xml_fac : xml_perc.child("facilities").children("shop")) {
+		assert(storage != perc.storages.end());
+		storage->items.init(into);
+		for (auto xml_item : xml_fac.child("items").children("item")) {
+			Storage_item item;
+			item.item = get_id(xml_item.attribute("name").value());
+			narrow(item.amount, xml_item.attribute("stored").as_int());
+			narrow(item.delivered, xml_item.attribute("delivered").as_int());
+			storage->items.push_back(item, into);
+		}
+		++storage;
+	}
+	assert(storage == perc.storages.end());
 	perc.workshops.init(into);
 	for (auto xml_fac: xml_perc.child("facilities").children("workshop")) {
 		Workshop fac;

@@ -14,6 +14,10 @@ struct Item_stack {
 struct Pos {
 	u8 lat;
 	u8 lon;
+	u8 estimateDistance(Pos p) {
+		s16 dx = lat - p.lat, dy = lat - p.lat;
+		return sqrt(dx*dx + dy*dy);
+	}
 };
 
 struct Product {
@@ -266,10 +270,33 @@ struct Charging_station : Facility {
 	u8 q_size; // -1 if <info> not visible
 };
 
-struct Dump_location : Facility {};
-struct Shop          : Facility {};
-struct Storage       : Facility {};
-struct Workshop      : Facility {};
+struct Dump_location : Facility {
+	u16 price;
+};
+
+struct Shop_item : Item_stack {
+	u16 cost;
+	u8 restock;
+};
+
+struct Shop          : Facility {
+	Flat_array<Shop_item> items;
+};
+
+struct Storage_item : Item_stack {
+	u8 delivered;
+};
+
+struct Storage       : Facility {
+	u8 price;
+	u16 totalCapacity;
+	u16 usedCapacity;
+	Flat_array<Storage_item> items;
+};
+
+struct Workshop      : Facility {
+	u16 price;
+};
 
 struct Job_item: Item_stack {
 	u8 delivered;
