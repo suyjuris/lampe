@@ -12,15 +12,21 @@ using namespace jup;
 
 Server* server;
 
+std::thread::id main_thread_id;
+
+
 /**
  * Close the java process on termination
  */
 void handle_sigint(int sig) {
-    jerr << sig << ' ' << SIGINT << ' ' << SIGTERM << ' ' << SIGABRT << '\n';
+    //if (std::this_thread::get_id() != main_thread_id) return;
     assert(sig == SIGINT or sig == SIGABRT or sig == SIGTERM);
-    jerr << "\nCleaning up...\n";
+    jerr << "Caught interrupt, cleaning up...\n";
+    program_closing = true;
+    std::signal(SIGABRT, SIG_DFL);
     delete server;
-    std::terminate();
+    stop_abort_from_printing();
+    std::abort();
 }
 
 /**
@@ -40,6 +46,8 @@ int main(int argc, c_str const* argv) {
             " - config is the path of the configuration file relative to path.\n";
         return 1;
     }
+
+    main_thread_id = std::this_thread::get_id();
 
     // Register signal handling
     assert(std::signal(SIGINT,  &handle_sigint) != SIG_ERR);
@@ -69,7 +77,7 @@ int main(int argc, c_str const* argv) {
         buffer.reset();
         auto& mess = get_next_message_ref<Message_Auth_Response>(sock, &buffer);
         if (mess.succeeded) {
-            jout << "Conected to server.\n";
+            jout << "Connected to server.\n";
         } else {
             jout << "Invalid authentification.\n";
             return 1;

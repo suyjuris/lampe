@@ -20,6 +20,12 @@ void sleep(int milliseconds);
  */
 bool is_debugged();
 
+/**
+ * On Windows, abort prints the annoying "The application has...". This causes
+ * it to shut up.
+ */
+void stop_abort_from_printing();
+
 class Process {
 public:
     bool write_to_buffer = true;
@@ -44,7 +50,10 @@ public:
     operator bool() const { return valid; }
     
 private:
-    HANDLE read, write;
+    /**
+     * read is the pipe we are reading from, read_other is the other end of the pipe.
+     */
+    HANDLE read, write, read_other, write_other;
     PROCESS_INFORMATION proc_info;
     Buffer buffer;         
     std::thread worker;    

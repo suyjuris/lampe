@@ -1,16 +1,29 @@
 #include "global.hpp"
 #include "system.hpp"
+
+#include <stdlib.h>
 #include <windows.h>
 #include <fstream>
 
 namespace jup {
 
+// see header
 void sleep(int milliseconds) {
     Sleep(milliseconds);
 }
 
+// see header
 bool is_debugged() {
     return IsDebuggerPresent();
+}
+
+// see header
+void stop_abort_from_printing() {
+    // This would be the more proper way, but I can't get mingw to link a recent
+    // version of msvcr without making pthreads segfault.
+    //_set_abort_behavior(0, _WRITE_ABORT_MSG);
+    
+    CloseHandle(GetStdHandle(STD_ERROR_HANDLE));
 }
 
 void Process::init(const char* cmdline, const char* dir) {
@@ -31,26 +44,23 @@ void Process::init(const char* cmdline, const char* dir) {
     assert(SetHandleInformation(stdin_write, HANDLE_FLAG_INHERIT, 0));
     assert(SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0));
 
-    PROCESS_INFORMATION pi;
-    STARTUPINFO si;
+    STARTUPINFO startup_info;
+    memset(&proc_info,    0, sizeof(proc_info   ));
+    memset(&startup_info, 0, sizeof(startup_info));
 
-    ZeroMemory(&pi, sizeof(pi));
-    ZeroMemory(&si, sizeof(si));
-
-    si.cb = sizeof(STARTUPINFO);
+    startup_info.cb = sizeof(STARTUPINFO);
     //si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
-    si.hStdError = stdout_write;
-    si.hStdOutput = stdout_write;
-    si.hStdInput = stdin_read;
-    si.dwFlags |= STARTF_USESTDHANDLES;
+    startup_info.hStdError = stdout_write;
+    startup_info.hStdOutput = stdout_write;
+    startup_info.hStdInput = stdin_read;
+    startup_info.dwFlags |= STARTF_USESTDHANDLES;
 
     assert(CreateProcess(0, const_cast<LPSTR>(cmdline), nullptr, nullptr, true,
-                         0, nullptr, dir, &si, &pi));
+                         0, nullptr, dir, &startup_info, &proc_info));
 
     write = stdin_write;
     read  = stdout_read;
-    proc_info = pi;
-
+    
     worker = std::thread(&fillBuffer, this);
 
     valid = true;
@@ -61,8 +71,15 @@ void Process::close() {
 
     valid = false;
     TerminateProcess(proc_info.hProcess, 0);
-    CloseHandle(proc_info.hProcess);
-    CloseHandle(proc_info.hThread);
+    assert( CloseHandle(proc_info.hProcess) );
+    assert( CloseHandle(proc_info.hThread) );
+
+    // Very dirty. Assume that threads are implemented using some kind of
+    // pthread variant (which is true under mingw) and call an internal function
+    // to get the Windows handle.
+    assert( CancelSynchronousIo(pthread_gethandle(worker.native_handle())) );
+    
+    worker.join();
 }
 
 void Process::send(Buffer_view buf) {
@@ -96,6 +113,9 @@ void Process::fillBuffer() {
             if (code == ERROR_BROKEN_PIPE) {
                 // The handle has been closed
                 close();
+                return;
+            } else if (code == ERROR_OPERATION_ABORTED) {
+                // We are closing down
                 return;
             } else {
                 assert(false);

@@ -1,9 +1,13 @@
 #pragma once
 
+/**
+ * Needed for CancelSynchronousIo
+ */
+#define _WIN32_WINNT _WIN32_WINNT_VISTA
+
 #include <cassert>
 #include <cstdint>
 #include <ostream>
-
 
 namespace jup {
 
@@ -30,5 +34,11 @@ inline void narrow(T& into, R from) {
 	into = static_cast<T>(from);
 	assert(into == from and (into > 0) == (from > 0));
 }
+
+/**
+ * While the program is being shut down, this is set to 1. Inhibits the printing
+ * of some error messages.
+ */
+extern bool program_closing;
 
 } /* end of namespace jup */

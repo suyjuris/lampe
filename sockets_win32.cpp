@@ -12,6 +12,7 @@
 #include <ws2tcpip.h>
 
 #include "sockets.hpp"
+#include "system.hpp"
 
 // This is the Windows Implementation of the sockets.hpp sockets.
 
@@ -99,6 +100,13 @@ int Socket::recv(Buffer* into) {
 		auto result = ::recv(get_sock(*this), into->end(), into->space(), 0);
 		
 		if (result < 0) {
+            // This is dirty. When the program is closing down, there could be
+            // an error here due to the server being killed. This is a sleep we
+            // should not wake up from.
+            if (program_closing) {
+                sleep(1000); assert(false);
+            }
+            
 			jerr << "Warning: recv failed: " << WSAGetLastError() << '\n';
 			close();
 			return total_count;
