@@ -5,6 +5,8 @@
  */
 #define _WIN32_WINNT _WIN32_WINNT_VISTA
 
+#define BARRIER "--------------------------------"
+
 #include <cassert>
 #include <cstdint>
 #include <ostream>
@@ -14,6 +16,7 @@ namespace jup {
 // Use these facilities for general output. They may redirect into a logfile later on.
 extern std::ostream& jout;
 extern std::ostream& jerr;
+using std::endl;
 
 // Standard integer types
 using s64 = std::int64_t;
