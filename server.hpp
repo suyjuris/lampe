@@ -13,6 +13,7 @@ class Server {
         Socket socket;
         const char* name = nullptr;
         Simulation* simulation = nullptr;
+        u8 id;
     };
     
 public:

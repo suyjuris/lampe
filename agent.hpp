@@ -9,10 +9,10 @@
 
 namespace jup {	
 
-using Agent = std::function< Action const&(Simulation const&, Perception const&) >;
+using Agent = std::function< Action const&(u8 id, Simulation const&, Perception const&) >;
 
-Action const& dummy_agent (Simulation const& sim, Perception const& perc);
+Action const& dummy_agent (u8 id, Simulation const& sim, Perception const& perc);
 
-Action const& greedy_agent (Simulation const& sim, Perception const& perc);
+Action const& random_agent (u8 id, Simulation const& sim, Perception const& perc);
 
 } /* end of namespace jup */

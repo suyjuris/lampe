@@ -64,7 +64,7 @@ static Buffer memory_for_strings;
  */
 void* allocate_pugi(size_t size) {
 	// pugi wants its memory aligned, so try to keep it happy.
-	constexpr static int align = alignof(double) > alignof(void*)
+	/*constexpr static int align = alignof(double) > alignof(void*)
 		? alignof(double) : alignof(void*);
 	void* result = memory_for_messages.end();
 	std::size_t space = memory_for_messages.space();
@@ -73,9 +73,9 @@ void* allocate_pugi(size_t size) {
 		return result;
 	} else {
 		jerr << "Warning: Buffer for pugi is not big enough, need additional " << size << '\n';
-		additional_buffer_needed += size;
-		return malloc(size);
-	}
+    	additional_buffer_needed += size;
+    */	return malloc(size);
+	//}
 }
 void deallocate_pugi(void* ptr) {
 	// If the memory is inside the buffer, ignore the deallocation. The buffer is
@@ -120,7 +120,7 @@ Buffer_view get_string_from_id(u8 id) {
 }
 
 // Data for mapping coordinates to u8
-static constexpr double mess_lat_lon_padding = 0.05;
+static constexpr double mess_lat_lon_padding = 0.2;
 static bool messages_lat_lon_initialized = false;
 static double mess_min_lat;
 static double mess_max_lat;
@@ -531,15 +531,17 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 	if (additional_buffer_needed) {
 		memory_for_messages.trap_alloc(false);
 		memory_for_messages.reserve_space(additional_buffer_needed);
-		memory_for_messages.trap_alloc(true);
 		additional_buffer_needed = 0;
 	}
+    memory_for_messages.trap_alloc(true);
 
 	do {
 		sock.recv(&memory_for_messages);
 		assert(memory_for_messages.size());
 	} while (memory_for_messages.end()[-1] != 0);
-		
+
+    // jout << memory_for_messages.data();
+    
 	pugi::xml_document doc;
 	assert(doc.load_buffer_inplace(memory_for_messages.data(), memory_for_messages.size()));
 
@@ -752,18 +754,32 @@ char const* generate_action_param(Action const& action) {
 	end -= strlen("/>") + 1;
 	assert(strcmp(end, "/>") == 0);
 	*end = 0;
+
+    {
+        char* d = start;
+        char* p = start;
+        while (p != end) {
+            while (*p == '"') ++p;
+            *d++ = *p++;
+        }
+        *d = 0;
+    }
 	return start;
 }
 
 // see header
 void send_message(Socket& sock, Message_Action const& mess) {
-	pugi::xml_document doc;
+    // Do it up here, so that pugi has no problems with its memory
+    auto action_param = generate_action_param(*mess.action);
+    memory_for_messages.trap_alloc(true);
+
+    pugi::xml_document doc;    
 	auto xml_mess = prep_message_xml(mess, &doc, "action");
 	
 	auto xml_auth = xml_mess.append_child("action");
 	xml_auth.append_attribute("id") = mess.id;
 	xml_auth.append_attribute("type") = Action::get_name(mess.action->type);
-	xml_auth.append_attribute("param") = generate_action_param(*mess.action);
+	xml_auth.append_attribute("param") = action_param;
 	
 	send_xml_message(sock, doc);
 }

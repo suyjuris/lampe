@@ -70,7 +70,7 @@ struct Action {
 	};
 	
 	static u8 get_id(char const* str) {
-		constexpr int count = sizeof(action_names) / sizeof("");
+		constexpr int count = sizeof(action_names) / sizeof(action_names[0]);
 		static_assert(count < 256, "Too many elements in action_names");
 		for (u8 i = 0; i < count; ++i) {
 			if (std::strcmp(str, action_names[i])) return i;
@@ -79,22 +79,29 @@ struct Action {
 		return -1;
 	}
 	static char const* get_name(int id) {
-		constexpr int count = sizeof(action_names) / sizeof("");
+		constexpr int count = sizeof(action_names) / sizeof(action_names[0]);
+        switch (id) {
+        case GOTO1:
+        case GOTO2: id = GOTO; break;
+        case POST_JOB1:
+        case POST_JOB2: id = POST_JOB; break;
+        default: break;
+        };
 		assert(0 <= id and id < count);
 		return action_names[id];
 	}
 		
 	static u8 get_result_id(char const* str) {
-		constexpr int count = sizeof(action_result_names) / sizeof("");
+		constexpr int count = sizeof(action_result_names) / sizeof(action_result_names[0]);
 		static_assert(count < 256, "Too many elements in action_result_names");
 		for (u8 i = 0; i < count; ++i) {
-			if (std::strcmp(str, action_result_names[i])) return i;
+			if (std::strcmp(str, action_result_names[i]) == 0) return i;
 		}
 		assert(false);
 		return -1;
 	}
 	static char const* get_result_name(int id) {
-		constexpr int count = sizeof(action_result_names) / sizeof("");
+		constexpr int count = sizeof(action_result_names) / sizeof(action_result_names[0]);
 		assert(0 <= id and id < count);
 		return action_result_names[id];
 	}

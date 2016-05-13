@@ -120,6 +120,7 @@ bool Server::register_agent(Agent const& agent, char const* name, char const* pa
 
     data.agent = agent;
     data.name = name;
+    data.id = agents().size();
     data.socket.init("localhost", "12300");
     if (!data.socket) { return false; }
 
@@ -165,10 +166,10 @@ void Server::run_simulation() {
             auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
             assert(mess.perception.simulation_step == step);
             
-            Action const& action = i.agent(*i.simulation, mess.perception);
+            Action const& action = i.agent(i.id, *i.simulation, mess.perception);
                  
             auto& answ = step_buffer.emplace_back<Message_Action>(
-                mess.perception.id, action, &step_buffer
+                mess.perception.id, (Action_Goto1&)action, &step_buffer
             );
             send_message(i.socket, answ);
         }
