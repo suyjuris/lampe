@@ -4,7 +4,7 @@
 
 #include "flat_data.hpp"
 
-namespace jup {	
+namespace jup {
 
 struct Item_stack {
 	u8 item;
@@ -14,11 +14,15 @@ struct Item_stack {
 struct Pos {
 	u8 lat;
 	u8 lon;
-	u8 estimateDistance(Pos p) {
+	u8 estimateDistance(Pos const& p) {
 		s16 dx = lat - p.lat, dy = lat - p.lat;
 		return sqrt(dx*dx + dy*dy);
 	}
 };
+
+/*bool operator==(Pos const& o, Pos const& p) {
+	return o.lat == p.lat && o.lon == p.lon;
+}*/
 
 struct Product {
 	u8 name;
@@ -26,6 +30,8 @@ struct Product {
 	u16 volume;
 	Flat_array<Item_stack> consumed;
 	Flat_array<u8> tools;
+	
+	static Product const* getByID(u8 id);
 };
 
 struct Role {
@@ -236,7 +242,6 @@ struct Simulation {
 	u16 seed_capital;
 	u16 steps;
 	Role role;
-	Flat_array<Product> products;
 };
 
 struct Self {
@@ -275,10 +280,14 @@ struct Charging_station : Facility {
 	u16 price;
 	u8 slots;
 	u8 q_size; // -1 if <info> not visible
+
+	static Charging_station const* getByID(u8 id);
 };
 
 struct Dump_location : Facility {
 	u16 price;
+
+	static Dump_location const* getByID(u8 id);
 };
 
 struct Shop_item : Item_stack {
@@ -288,6 +297,8 @@ struct Shop_item : Item_stack {
 
 struct Shop          : Facility {
 	Flat_array<Shop_item> items;
+
+	static Shop const* getByID(u8 id);
 };
 
 struct Storage_item : Item_stack {
@@ -299,10 +310,14 @@ struct Storage       : Facility {
 	u16 totalCapacity;
 	u16 usedCapacity;
 	Flat_array<Storage_item> items;
+
+	static Storage const* getByID(u8 id);
 };
 
 struct Workshop      : Facility {
 	u16 price;
+
+	static Workshop const* getByID(u8 id);
 };
 
 struct Job_item: Item_stack {
@@ -327,11 +342,14 @@ struct Job_priced : Job {
 };
 
 struct Perception {
-	u64 deadline;
-	u16 id;
-	u16 simulation_step;
 	Self self;
 	Team team;
+	u16 id;
+};
+
+struct Global_Perception {
+	u64 deadline;
+	u16 simulation_step;
 	Flat_array<Entity> entities;
 	Flat_array<Charging_station> charging_stations;
 	Flat_array<Dump_location> dump_locations;
@@ -341,5 +359,8 @@ struct Perception {
 	Flat_array<Job_auction> auction_jobs;
 	Flat_array<Job_priced> priced_jobs;
 };
+
+extern Flat_array<Product>* products;
+extern Global_Perception* world;
 
 } /* end of namespace jup */

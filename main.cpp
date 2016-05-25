@@ -69,7 +69,7 @@ int main(int argc, c_str const* argv) {
 	Socket_context socket_context;
 
     for (auto i: {"a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"}) {
-        if (!server->register_agent(&random_agent, i)) {
+        if (!server->register_agent(&tree_agent, i)) {
             jerr << "Error: Could not connect agent, exiting.\n";
             return 1;
         }

@@ -164,7 +164,7 @@ void Server::run_simulation() {
         step_buffer.reset();
         for (Agent_data& i: agents()) {
             auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
-            assert(mess.perception.simulation_step == step);
+            assert(world->simulation_step == step);
             
             Action const& action = i.agent(i.id, *i.simulation, mess.perception);
                  
