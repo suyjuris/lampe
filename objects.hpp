@@ -53,7 +53,7 @@ struct Action {
 		"call_breakdown_service", "continue", "skip", "abort"
     };
 	enum Action_result: u8 {
-		SUCCESSFUL = 0, /* guarantee this, so that users may asser */
+		SUCCESSFUL = 0, /* guarantee this, so that users may assert */
 		FAILED_LOCATION, FAILED_UNKNOWN_ITEM, FAILED_UNKNOWN_AGENT,
 	    FAILED_UNKNOWN_JOB, FAILED_UNKNOWN_FACILITY, FAILED_NO_ROUTE,
 	    FAILED_ITEM_AMOUNT, FAILED_CAPACITY, FAILED_WRONG_FACILITY,

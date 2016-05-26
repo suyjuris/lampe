@@ -141,6 +141,91 @@ struct Move_Assist_Assemble : Move {
 		Move{ assist_assemble }, assemble{ a } {}
 };
 
+struct Requirement {
+    enum Type : u8 {
+        GET_ITEM, BUY_ITEM, CRAFT_ITEM, DONE
+    };
+    
+    u8 type;
+    // The index of the Requirement this depends on, or 0xff
+    u8 dependency;
+    Item_stack item;
+    u8 where;
+};
+
+struct Job_execution {
+    u8 job;
+    Flat_array<Requirement> needed;
+};
+
+void get_execution_plan(World const& world, Job const& job, Buffer* into) {
+    assert(into);
+
+    int exe_offset = into->size();
+    into->emplace_back<Job_execution>();
+    auto exe = [into, exe_offset]() -> Job_execution& {
+        return into->get<Job_execution>(exe_offset);
+    };
+
+    std::function<void(Item_stack, u8)> add_req;
+    add_req = [&world, exe, add_req, into](Item_stack item, u8 depend) {
+        for (Storage const& storage: *world.storages) {
+            for (Storage_item i: storage.items) {
+                if (i.item == item.item and i.amount > i.delivered) {
+                    if (i.amount - i.delivered >= item.amount) {
+                        exe().needed.push_back(Requirement {
+                                Requirement::GET_ITEM, depend, item, storage.name
+                        }, into);
+                        return;
+                    } else {
+                        exe().needed.push_back(Requirement {
+                                Requirement::GET_ITEM, depend, {i.item, i.amount}, storage.name
+                        }, into);
+                        item.amount -= i.amount;
+                    }
+                }
+            }
+        }
+        
+        for (Shop const& shop: *world.shops) {
+            for (Shop_item i: shop.items) {
+                if (i.item == item.item) {
+                    if (i.amount >= item.amount) {
+                        exe().needed.push_back(Requirement {
+                                Requirement::BUY_ITEM, depend, item, i.id
+                        });
+                        return;
+                    } else {
+                        exe().needed.push_back(Requirement {
+                                Requirement::BUY_ITEM, depend, {i.item, i.amount}, shop.name
+                        }, into);
+                        item.amount -= i.amount;
+                    }
+                }
+            }
+        }
+
+        // TODO: Respect restock
+        // TODO: Try to use items in inventories of agents
+
+        for (Product const& i: *world.products) {
+            if (i.name == item.item and i.assembled) {
+                item.amount = (item.amount - 1) / i.volume + 1;
+                exe().needed.push_back(Requirement {Requirement::CRAFT_ITEM, depend, item, i.name}, into);
+                for (Item_stack j: i.consumed) {
+                    add_req(j, exe().needed.size() - 1);
+                }
+                return;
+            }
+        }
+    };
+    
+    exe().needed.init(into);
+    for (Job_item i: job.items) {
+        add_req({i.item, i.amount - i.delivered}, 0xff);
+    }
+}
+
 Action const& tree_agent(Agent const& agent) {
 
 
