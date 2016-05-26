@@ -49,6 +49,13 @@ struct Flat_array {
 		containing->emplace_back<Size_t>();
 	}
 
+	void init(Flat_array<Type, Offset_t, Size_t> const& orig, Buffer* containing) {
+		init(containing);
+		for (Type const& var : orig) {
+			push_back(var, containing);
+		}
+	}
+
 	Size_t size() const { return m_size(); }
 
 	T* begin() { return (T*)(&m_size() + 1); }
@@ -71,6 +78,14 @@ struct Flat_array {
 	T const& operator[] (int pos) const {
 		assert(0 <= pos and pos < size());
 		return *(begin() + pos);
+	}
+
+	T& emplace_back(Buffer* containing) {
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			and (void*)end() == (void*)containing->end());
+		++m_size();
+		return containing->emplace_back<T>();
 	}
 
 	/**

@@ -6,15 +6,15 @@
 
 #include "buffer.hpp"
 #include "objects.hpp"
+#include "world.hpp"
 
 namespace jup {	
 
-using Agent_callback = std::function< Action const&(u8 id, Simulation const&, Perception const&) >;
 
-Action const& dummy_agent  (u8 id, Simulation const& sim, Perception const& perc);
+using Agent_callback = std::function< Action const&(Agent const& agent) >;
 
-Action const& random_agent (u8 id, Simulation const& sim, Perception const& perc);
+Action const& dummy_agent  (Agent const& agent);
 
-Action const& greedy_agent (u8 id, Simulation const& sim, Perception const& perc);
+Action const& random_agent (Agent const& agent);
 
 } /* end of namespace jup */

@@ -174,6 +174,7 @@ void Server::run_simulation() {
         }
         
         step_buffer.reset();
+		agent_buffer.reset();
 
 		firstagent = true;
 
@@ -194,18 +195,33 @@ void Server::run_simulation() {
 				world.workshops = &mess.perception.workshops;
 				world.auction_jobs = &mess.perception.auction_jobs;
 				world.priced_jobs = &mess.perception.priced_jobs;
-				world.opponents = &step_buffer.get<Flat_array<Entity>>();
+				world.opponents = &step_buffer.emplace_back<Flat_array<Entity>>();
+				world.opponents->init(&step_buffer);
 				for (Entity const& e : mess.perception.entities) {
 					if (e.team != world.team_id) {
 						world.opponents->push_back(e, &step_buffer);
 					}
 				}
-				world.agents = &step_buffer.get<Flat_array<Agent>>();
+				agent_buffer.reserve((sizeof(Agent)
+					+ sizeof(Flat_array<Agent>)) * mess.perception.entities.size());
+				world.agents = &agent_buffer.emplace_back<Flat_array<Agent>>();
+				world.agents->init(&agent_buffer);
 			}
 
-			// TODO: Agents aufbauen (aus mess.perception.self,
-			// mess.perception.id und i.simulation->role)
-			// und in world.agents einbinden
+			Agent& a = world.agents->emplace_back(&agent_buffer);
+			a.action_id = mess.perception.id;
+			a.role = i.simulation->role;
+			a.charge = mess.perception.self.charge;
+			a.load = mess.perception.self.load;
+			a.last_action = mess.perception.self.last_action;
+			a.last_action_result = mess.perception.self.last_action_result;
+			a.pos = mess.perception.self.pos;
+			a.in_facility = mess.perception.self.in_facility;
+			a.f_position = mess.perception.self.f_position;
+			a.route_length = mess.perception.self.route_length;
+			/*a.items.init(mess.perception.self.items, &step_buffer);
+			a.route.init(mess.perception.self.route, &step_buffer);*/
+
             
             Action const& action = i.agent(i.id, *i.simulation, mess.perception);
                  
@@ -214,6 +230,15 @@ void Server::run_simulation() {
             );
             send_message(i.socket, answ);
         }
+
+		world.agents = nullptr;
+		world.opponents = nullptr;
+		/*world.charging_stations = nullptr;
+		world.dump_locations = nullptr;
+		world.shops = nullptr;
+		world.workshops = nullptr;
+		world.auction_jobs = nullptr;
+		world.priced_jobs = nullptr;*/
     }
 
     proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");

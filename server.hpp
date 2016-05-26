@@ -30,7 +30,8 @@ public:
 
 private:
     Buffer general_buffer;
-    Buffer step_buffer;
+	Buffer step_buffer;
+	Buffer agent_buffer;
     int agents_offset;
 };
 

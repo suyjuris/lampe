@@ -7,7 +7,7 @@
 
 namespace jup {
 
-Action const& dummy_agent (u8 id, Simulation const& sim, Perception const& perc) {
+Action const& dummy_agent (Agent const& agent) {
     static Buffer buffer;
     return buffer.emplace<Action_Skip>();
 }
@@ -63,77 +63,122 @@ Job_priced const* find_job(u8 name, Perception const& perc) {
     return nullptr;
 }
 
-u8 get_random_loc(Perception const& perc) {
+u8 get_random_loc() {
     int count = 0;
-    count += perc.charging_stations.size();
-    count += perc.dump_locations.size();
-    count += perc.shops.size();
-    count += perc.storages.size();
-    count += perc.workshops.size();
+    count += world.charging_stations->size();
+    count += world.dump_locations->size();
+    count += world.shops->size();
+    count += world.storages->size();
+    count += world.workshops->size();
 
     int i = rand() % count;
 
-    if (i < perc.charging_stations.size()) {
-        return perc.charging_stations[i].name;
+    if (i < world.charging_stations->size()) {
+        return (*world.charging_stations)[i].name;
     }
-    i -= perc.charging_stations.size();
+    i -= world.charging_stations->size();
     
-    if (i < perc.dump_locations.size()) {
-        return perc.dump_locations[i].name;
+    if (i < world.dump_locations->size()) {
+        return (*world.dump_locations)[i].name;
     }
-    i -= perc.dump_locations.size();
+    i -= world.dump_locations->size();
     
-    if (i < perc.shops.size()) {
-        return perc.shops[i].name;
+    if (i < world.shops->size()) {
+        return (*world.shops)[i].name;
     }
-    i -= perc.shops.size();
+    i -= world.shops->size();
     
-    if (i < perc.storages.size()) {
-        return perc.storages[i].name;
+    if (i < world.storages->size()) {
+        return (*world.storages)[i].name;
     }
-    i -= perc.storages.size();
+    i -= world.storages->size();
     
-    if (i < perc.workshops.size()) {
-        return perc.workshops[i].name;
+    if (i < world.workshops->size()) {
+        return (*world.workshops)[i].name;
     }
 
     return 0;
 }
 
 
-Action const& random_agent (u8 id, Simulation const& sim, Perception const& perc) {
+struct Move {
+	enum Move_Type : u8 {
+		undefined,
+		charge,
+		buy,
+		assemble,
+		assist_assemble,
+		deliver
+	};
+
+	Move_Type type;
+
+};
+
+struct Move_Charge : Move {
+	u8 station;
+	Move_Charge(u8 s) :
+		Move{ charge }, station{ s } {}
+};
+
+struct Move_Buy : Move {
+	u8 shop;
+	Item_stack item;
+	Move_Buy(u8 s, u8 i) :
+		Move{ buy }, shop{ s }, item{ i } {}
+};
+
+struct Move_Assemble : Move {
+	u8 workshop;
+	u8 item;
+	Move_Assemble(u8 w, u8 i) :
+		Move{ assemble }, workshop{ w }, item{ i } {}
+};
+
+struct Move_Assist_Assemble : Move {
+	u16 assemble;		// offset to Move_Assemble object
+	Move_Assist_Assemble(u8 a) :
+		Move{ assist_assemble }, assemble{ a } {}
+};
+
+Action const& tree_agent(Agent const& agent) {
+
+
+
+	return dummy_agent(agent);
+}
+
+Action const& random_agent (Agent const& agent) {
     static Buffer buffer;
     static u8 target[8];
 
-    for (Charging_station const& i: perc.charging_stations) {
-        if (i.name == perc.self.in_facility and perc.self.charge < sim.role.max_battery) {
-            return buffer.emplace<Action_Charge>();
-        }
-    }
-    
-    if (perc.self.charge * sim.role.speed < 700) {
-        int min_diff = 0x7fffffff;
-        for (Charging_station const& i: perc.charging_stations) {
-            auto const& p = perc.self.pos;
-            auto const& q = i.pos;
-            int diff = (p.lat-q.lat)*(p.lat-q.lat) + (p.lon-q.lon)*(p.lon-q.lon);
-            diff = diff * 16 / (rand() % 16 + 8);
-            if (diff < min_diff) {
-                min_diff = diff;
-                target[id] = i.name;
-                return buffer.emplace<Action_Goto1>(0, target[id]);
-            }
-        }
-    }
-    
-    if (perc.self.last_action_result == Action::SUCCESSFUL and perc.self.in_facility != target[id]) {
-        return buffer.emplace<Action_Continue>();
-    }
+	for (Charging_station const& i : *world.charging_stations) {
+		if (i.name == agent.in_facility and agent.charge < agent.role.max_battery) {
+			return buffer.emplace<Action_Charge>();
+		}
+	}
 
-    target[id] = get_random_loc(perc);
-    return buffer.emplace<Action_Goto1>(0, target[id]);
-    
+	if (agent.charge * agent.role.speed < 700) {
+		int min_diff = 0x7fffffff;
+		for (Charging_station const& i : *world.charging_stations) {
+			auto const& p = agent.pos;
+			auto const& q = i.pos;
+			int diff = (p.lat - q.lat)*(p.lat - q.lat) + (p.lon - q.lon)*(p.lon - q.lon);
+			diff = diff * 16 / (rand() % 16 + 8);
+			if (diff < min_diff) {
+				min_diff = diff;
+				target[agent.action_id] = i.name;
+				return buffer.emplace<Action_Goto1>(0, target[agent.action_id]);
+			}
+		}
+	}
 
+	if (agent.last_action_result == Action::SUCCESSFUL and agent.in_facility != target[agent.action_id]) {
+		return buffer.emplace<Action_Continue>();
+	}
+
+	target[agent.action_id] = get_random_loc();
+	buffer.emplace<Action_Goto1>(0, target[agent.action_id]);
     /*
     Pos cur_goal;
     cur_goal.lat = rand() % 128 + 64;
