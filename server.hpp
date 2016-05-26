@@ -9,7 +9,7 @@ namespace jup {
 
 class Server {
     struct Agent_data {
-        Agent agent;
+        Agent_callback agent;
         Socket socket;
         const char* name = nullptr;
         Simulation* simulation = nullptr;
@@ -21,7 +21,7 @@ public:
 
     Server(const char* directory, const char* config = nullptr);
 
-    bool register_agent(Agent const& agent, char const* name, char const* password = nullptr);
+    bool register_agent(Agent_callback const& agent, char const* name, char const* password = nullptr);
     void run_simulation();
 
     auto& agents() {

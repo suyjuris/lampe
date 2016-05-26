@@ -5,6 +5,7 @@
 
 #include "server.hpp"
 #include "messages.hpp"
+#include "world.hpp"
 
 namespace jup {
 
@@ -109,7 +110,7 @@ Server::Server(c_str directory, c_str config_par) {
 }
 
 
-bool Server::register_agent(Agent const& agent, char const* name, char const* password) {
+bool Server::register_agent(Agent_callback const& agent, char const* name, char const* password) {
     assert(name);
     if (!password) {
         password = "1";
@@ -146,6 +147,9 @@ void Server::run_simulation() {
 	proc.send("\n");
     
     int max_steps = -1;
+
+	bool firstagent = true;
+
     for (Agent_data& i: agents()) {
         auto& mess = get_next_message_ref<Message_Sim_Start>(i.socket, &general_buffer);
         if (max_steps != -1) {
@@ -154,6 +158,14 @@ void Server::run_simulation() {
             max_steps = mess.simulation.steps;
         }
         i.simulation = &mess.simulation;
+		if (firstagent) {
+			firstagent = false;
+			world.seed_capital = mess.simulation.seed_capital;
+			world.max_steps = mess.simulation.steps;
+			world.simulation_id = mess.simulation.id;
+			world.team_id = mess.simulation.team;
+			world.products = &mess.simulation.products;
+		}
     }
 
     for (int step = 0; step < max_steps; ++step) {
@@ -162,9 +174,38 @@ void Server::run_simulation() {
         }
         
         step_buffer.reset();
+
+		firstagent = true;
+
         for (Agent_data& i: agents()) {
+
             auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
             assert(mess.perception.simulation_step == step);
+
+			if (firstagent) {
+				firstagent = false;
+				world.deadline = mess.perception.deadline;
+				world.simulation_step = mess.perception.simulation_step;
+				world.team = &mess.perception.team;
+				world.charging_stations = &mess.perception.charging_stations;
+				world.dump_locations = &mess.perception.dump_locations;
+				world.shops = &mess.perception.shops;
+				world.storages = &mess.perception.storages;
+				world.workshops = &mess.perception.workshops;
+				world.auction_jobs = &mess.perception.auction_jobs;
+				world.priced_jobs = &mess.perception.priced_jobs;
+				world.opponents = &step_buffer.get<Flat_array<Entity>>();
+				for (Entity const& e : mess.perception.entities) {
+					if (e.team != world.team_id) {
+						world.opponents->push_back(e, &step_buffer);
+					}
+				}
+				world.agents = &step_buffer.get<Flat_array<Agent>>();
+			}
+
+			// TODO: Agents aufbauen (aus mess.perception.self,
+			// mess.perception.id und i.simulation->role)
+			// und in world.agents einbinden
             
             Action const& action = i.agent(i.id, *i.simulation, mess.perception);
                  

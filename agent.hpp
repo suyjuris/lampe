@@ -9,7 +9,7 @@
 
 namespace jup {	
 
-using Agent = std::function< Action const&(u8 id, Simulation const&, Perception const&) >;
+using Agent_callback = std::function< Action const&(u8 id, Simulation const&, Perception const&) >;
 
 Action const& dummy_agent  (u8 id, Simulation const& sim, Perception const& perc);
 
