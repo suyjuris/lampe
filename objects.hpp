@@ -59,7 +59,7 @@ struct Action {
 	    FAILED_ITEM_AMOUNT, FAILED_CAPACITY, FAILED_WRONG_FACILITY,
 	    FAILED_TOOLS, FAILED_ITEM_TYPE, FAILED_JOB_STATUS, FAILED_JOB_TYPE,
 		FAILED_COUNTERPART, FAILED_WRONG_PARAM, FAILED_UNKNOWN_ERROR,
-		SUCCESSFUL_PARTIAL, USELESS, FAILED_RANDOM
+            SUCCESSFUL_PARTIAL, USELESS, FAILED_RANDOM, TODO_REMOVEME
 	};
 	static constexpr char const* action_result_names[] = {
 		"successful", "failed_location", "failed_unknown_item",
@@ -68,14 +68,14 @@ struct Action {
 	    "failed_wrong_facility", "failed_tools", "failed_item_type",
 	    "failed_job_status", "failed_job_type", "failed_counterpart",
 	    "failed_wrong_param", "failed_unknown_error", "successful_partial",
-	    "useless", "failed_random"
+	    "useless", "failed_random", "failed_counterpat",
 	};
 	
 	static u8 get_id(char const* str) {
 		constexpr int count = sizeof(action_names) / sizeof(action_names[0]);
 		static_assert(count < 256, "Too many elements in action_names");
 		for (u8 i = 0; i < count; ++i) {
-			if (std::strcmp(str, action_names[i])) return i;
+			if (std::strcmp(str, action_names[i]) == 0) return i;
 		}
 		assert(false);
 		return -1;

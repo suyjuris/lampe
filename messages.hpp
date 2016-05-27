@@ -94,6 +94,8 @@ struct Message_Request_Action: Message_Server2Client {
  */
 void init_messages();
 
+u8 register_id(Buffer_view str);
+
 /**
  * Return the id of the string. The empty string is guaranteed to have the id
  * 0. Different strings of different domains may have the same id (currently

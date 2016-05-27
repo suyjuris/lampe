@@ -3,6 +3,8 @@
 #include <thread>
 
 #include "global.hpp"
+
+#include "agent.hpp"
 #include "sockets.hpp"
 #include "messages.hpp"
 #include "system.hpp"
@@ -67,9 +69,12 @@ int main(int argc, c_str const* argv) {
     
 	init_messages();
 	Socket_context socket_context;
+    Mothership_simple mothership;
+
+    server->register_mothership(&mothership);
 
     for (auto i: {"a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"}) {
-        if (!server->register_agent(&random_agent, i)) {
+        if (!server->register_agent(i)) {
             jerr << "Error: Could not connect agent, exiting.\n";
             return 1;
         }

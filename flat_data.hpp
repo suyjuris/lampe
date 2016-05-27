@@ -56,11 +56,14 @@ struct Flat_array {
 		}
 	}
 
-	Size_t size() const { return m_size(); }
+	Size_t size() const {
+        if (!start) return 0;
+        return m_size();
+    }
 
-	T* begin() { return (T*)(&m_size() + 1); }
+	T* begin() { return start ? (T*)(&m_size() + 1) : nullptr; }
 	T* end()   { return begin() + size(); }
-	T const* begin() const { return (T const*)(&m_size() + 1); }
+	T const* begin() const { return start ? (T const*)(&m_size() + 1) : nullptr; }
 	T const* end()   const { return begin() + size(); }
 
     T& front() {assert(size()); return *begin();}

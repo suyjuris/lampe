@@ -107,6 +107,7 @@ u8 get_id(Buffer_view str) {
 	auto& map = memory_for_strings.get<Flat_idmap>();
 	return map.get_id(str, &memory_for_strings);
 }
+u8 register_id(Buffer_view str) { return get_id(str); }
 
 // see header
 u8 get_id_from_string(Buffer_view str) {

@@ -1,19 +1,25 @@
 #pragma once
 
-#include "agent.hpp"
 #include "sockets.hpp"
 #include "system.hpp"
+#include "objects.hpp"
 
 namespace jup {
 
+struct Mothership {
+    virtual void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) = 0;
+    virtual void pre_request_action() = 0;
+    virtual void pre_request_action(u8 agent, Perception const& perc, int perc_size) = 0;
+    virtual void on_request_action() = 0;
+    virtual void post_request_action(u8 agent, Buffer* into) = 0;
+};
 
 class Server {
     struct Agent_data {
-        Agent_callback agent;
         Socket socket;
         const char* name = nullptr;
-        Simulation* simulation = nullptr;
         u8 id;
+        u16 last_perception_id;
     };
     
 public:
@@ -21,7 +27,8 @@ public:
 
     Server(const char* directory, const char* config = nullptr);
 
-    bool register_agent(Agent_callback const& agent, char const* name, char const* password = nullptr);
+    void register_mothership(Mothership* mothership);
+    bool register_agent(char const* name, char const* password = nullptr);
     void run_simulation();
 
     auto& agents() {
@@ -31,8 +38,9 @@ public:
 private:
     Buffer general_buffer;
 	Buffer step_buffer;
-	Buffer agent_buffer;
     int agents_offset;
+    int mothership_offset;
+    Mothership* mothership;
 };
 
 } /* end of namespace jup */

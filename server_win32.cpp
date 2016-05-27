@@ -110,7 +110,11 @@ Server::Server(c_str directory, c_str config_par) {
 }
 
 
-bool Server::register_agent(Agent_callback const& agent, char const* name, char const* password) {
+void Server::register_mothership(Mothership* mothership_) {
+    mothership = mothership_;
+}
+
+bool Server::register_agent(char const* name, char const* password) {
     assert(name);
     if (!password) {
         password = "1";
@@ -119,9 +123,8 @@ bool Server::register_agent(Agent_callback const& agent, char const* name, char 
     agents().push_back(Agent_data {}, &general_buffer);
     Agent_data& data = agents().back();
 
-    data.agent = agent;
     data.name = name;
-    data.id = agents().size();
+    data.id = agents().size() - 1;
     data.socket.init("localhost", "12300");
     if (!data.socket) { return false; }
 
@@ -148,24 +151,16 @@ void Server::run_simulation() {
     
     int max_steps = -1;
 
-	bool firstagent = true;
-
     for (Agent_data& i: agents()) {
         auto& mess = get_next_message_ref<Message_Sim_Start>(i.socket, &general_buffer);
+        mess.simulation.id = register_id(i.name);
         if (max_steps != -1) {
             assert(max_steps == mess.simulation.steps);
         } else {
             max_steps = mess.simulation.steps;
         }
-        i.simulation = &mess.simulation;
-		if (firstagent) {
-			firstagent = false;
-			world.seed_capital = mess.simulation.seed_capital;
-			world.max_steps = mess.simulation.steps;
-			world.simulation_id = mess.simulation.id;
-			world.team_id = mess.simulation.team;
-			world.products = &mess.simulation.products;
-		}
+        mothership->on_sim_start(i.id, mess.simulation,
+                                 general_buffer.end() - (char*)&mess.simulation);
     }
 
     for (int step = 0; step < max_steps; ++step) {
@@ -174,71 +169,32 @@ void Server::run_simulation() {
         }
         
         step_buffer.reset();
-		agent_buffer.reset();
 
-		firstagent = true;
-
+        mothership->pre_request_action();
+        
         for (Agent_data& i: agents()) {
-
             auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
             assert(mess.perception.simulation_step == step);
 
-			if (firstagent) {
-				firstagent = false;
-				world.deadline = mess.perception.deadline;
-				world.simulation_step = mess.perception.simulation_step;
-				world.team = &mess.perception.team;
-				world.charging_stations = &mess.perception.charging_stations;
-				world.dump_locations = &mess.perception.dump_locations;
-				world.shops = &mess.perception.shops;
-				world.storages = &mess.perception.storages;
-				world.workshops = &mess.perception.workshops;
-				world.auction_jobs = &mess.perception.auction_jobs;
-				world.priced_jobs = &mess.perception.priced_jobs;
-				world.opponents = &step_buffer.emplace_back<Flat_array<Entity>>();
-				world.opponents->init(&step_buffer);
-				for (Entity const& e : mess.perception.entities) {
-					if (e.team != world.team_id) {
-						world.opponents->push_back(e, &step_buffer);
-					}
-				}
-				agent_buffer.reserve((sizeof(Agent)
-					+ sizeof(Flat_array<Agent>)) * mess.perception.entities.size());
-				world.agents = &agent_buffer.emplace_back<Flat_array<Agent>>();
-				world.agents->init(&agent_buffer);
-			}
+            i.last_perception_id = mess.perception.id;
+            mothership->pre_request_action(i.id, mess.perception,
+                                           step_buffer.end() - (char*)&mess.perception);
+        }
 
-			Agent& a = world.agents->emplace_back(&agent_buffer);
-			a.action_id = mess.perception.id;
-			a.role = i.simulation->role;
-			a.charge = mess.perception.self.charge;
-			a.load = mess.perception.self.load;
-			a.last_action = mess.perception.self.last_action;
-			a.last_action_result = mess.perception.self.last_action_result;
-			a.pos = mess.perception.self.pos;
-			a.in_facility = mess.perception.self.in_facility;
-			a.f_position = mess.perception.self.f_position;
-			a.route_length = mess.perception.self.route_length;
-			/*a.items.init(mess.perception.self.items, &step_buffer);
-			a.route.init(mess.perception.self.route, &step_buffer);*/
+        mothership->on_request_action();
+        
+        for (Agent_data& i: agents()) {
+            int action_offset = step_buffer.size();
+            mothership->post_request_action(i.id, &step_buffer);
 
+            // TODO: Fix the allocations
+            step_buffer.reserve_space(256);
             
-            Action const& action = i.agent(i.id, *i.simulation, mess.perception);
-                 
             auto& answ = step_buffer.emplace_back<Message_Action>(
-                mess.perception.id, (Action_Goto1&)action, &step_buffer
+                i.last_perception_id, step_buffer.get<Action_Post_job1>(action_offset), &step_buffer
             );
             send_message(i.socket, answ);
         }
-
-		world.agents = nullptr;
-		world.opponents = nullptr;
-		/*world.charging_stations = nullptr;
-		world.dump_locations = nullptr;
-		world.shops = nullptr;
-		world.workshops = nullptr;
-		world.auction_jobs = nullptr;
-		world.priced_jobs = nullptr;*/
     }
 
     proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
