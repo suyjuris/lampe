@@ -14,11 +14,9 @@ struct Item_stack {
 struct Pos {
 	u8 lat;
 	u8 lon;
-	u8 estimateDistance(Pos p) {
-		s16 dx = lat - p.lat, dy = lat - p.lat;
-		return sqrt(dx*dx + dy*dy);
-	}
 };
+
+u16 operator-(Pos const p1, Pos const p2);
 
 struct Product {
 	u8 name;
