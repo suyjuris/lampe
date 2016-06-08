@@ -34,10 +34,10 @@ struct Message_Auth_Request: Message_Client2Server {
 	 * This uses strings for now, as this message is only sent a handfull of
 	 * times and not performance critical.
 	 */
-	Message_Auth_Request(std::string user, std::string pass):
+	Message_Auth_Request(Buffer_view user, Buffer_view pass):
 		username{user}, password{pass} { type = AUTH_REQUEST; }
 	
-	std::string username, password;				 
+	Buffer_view username, password;				 
 };
 
 struct Message_Action: Message_Client2Server {
@@ -92,7 +92,7 @@ struct Message_Request_Action: Message_Server2Client {
 /**
  * Performs various initlization functions. Call before get_next_message or send_message.
  */
-void init_messages();
+void init_messages(std::ostream* _dump_xml_output = nullptr);
 
 u8 register_id(Buffer_view str);
 
@@ -103,7 +103,12 @@ u8 register_id(Buffer_view str);
  */
 u8 get_id_from_string(Buffer_view str);
 
-
+/**
+ * Return the string belonging to the specified id. This will return the empty
+ * string if given a 0.
+ */
+Buffer_view get_string_from_id(u8 id);
+    
 /**
  * Writes the next message in the Socket into the end of the Buffer. Returns the
  * type of the Message read. Blocks.

@@ -17,13 +17,14 @@ struct Buffer;
  * with arbitrary contents. Supports iteration over the bytes. Has no ownership
  * of any kind. This is a simple pointer + size combination.
  *
- * If you want to story a c-style string in here, use the size of the string
+ * If you want to store a c-style string in here, use the size of the string
  * without the terminating zero and call c_str() to extract the string, instead
  * of data().
  */
 struct Buffer_view {
 	Buffer_view(void const* data = nullptr, int size = 0):
 		m_data{data}, m_size{size} {assert(size >= 0);}
+    Buffer_view(std::nullptr_t): Buffer_view{} {}
 	
 	Buffer_view(Buffer const& buf);
 	
@@ -37,6 +38,7 @@ struct Buffer_view {
 	
 	Buffer_view(char const* str):
 		Buffer_view{str, (int)std::strlen(str)} {}
+
 
 	/**
 	 * Construct from arbitrary object. This is not a constructor due to the
@@ -93,9 +95,16 @@ struct Buffer_view {
 		return true;
 	}
 	bool operator!= (Buffer_view const& buf) const { return !(*this == buf); }
-	
-	void const* const m_data;
-	int const m_size;
+
+    /**
+     * Return whether the buffer is empty
+     */
+    operator bool() const {
+        return size();
+    }
+    
+	void const* m_data;
+	int m_size;
 };
 
 /**

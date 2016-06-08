@@ -57,6 +57,9 @@ static int additional_buffer_needed = 0;
 // relocate this.
 static Buffer memory_for_strings;
 
+// If this is not null, each message will be dumped in xml form into the stream.
+static std::ostream* dump_xml_output;
+
 /**
  * Implement the pugi memory function. This tries to get the memory from
  * memory_for_messages. If that fails due to not enough space the memory is
@@ -64,7 +67,7 @@ static Buffer memory_for_strings;
  */
 void* allocate_pugi(size_t size) {
 	// pugi wants its memory aligned, so try to keep it happy.
-	/*constexpr static int align = alignof(double) > alignof(void*)
+	constexpr static int align = alignof(double) > alignof(void*)
 		? alignof(double) : alignof(void*);
 	void* result = memory_for_messages.end();
 	std::size_t space = memory_for_messages.space();
@@ -74,8 +77,8 @@ void* allocate_pugi(size_t size) {
 	} else {
 		jerr << "Warning: Buffer for pugi is not big enough, need additional " << size << '\n';
     	additional_buffer_needed += size;
-    */	return malloc(size);
-	//}
+    	return malloc(size);
+	}
 }
 void deallocate_pugi(void* ptr) {
 	// If the memory is inside the buffer, ignore the deallocation. The buffer is
@@ -86,7 +89,7 @@ void deallocate_pugi(void* ptr) {
 }
 
 // see header
-void init_messages() {
+void init_messages(std::ostream* _dump_xml_output) {
 	pugi::set_memory_management_functions(&allocate_pugi, &deallocate_pugi);
     // 101k is currently used when parsing a perception.
 	memory_for_messages.reserve(256 * 1024);
@@ -97,6 +100,8 @@ void init_messages() {
 	
 	// Guarantee that no id maps to zero
 	assert(map.get_id("", &memory_for_strings) == 0);
+
+    dump_xml_output = _dump_xml_output;
 }
 
 /**
@@ -127,6 +132,8 @@ static double mess_min_lat;
 static double mess_max_lat;
 static double mess_min_lon;
 static double mess_max_lon;
+static int mess_scale_lat;
+static int mess_scale_lon;
 
 /**
  * Parse a point and change the min/max lat/lon accordingly.
@@ -145,6 +152,8 @@ void add_bound_point(pugi::xml_node xml_obj) {
 	if (lat > mess_max_lat) mess_max_lat = lat;
 	if (lon < mess_min_lon) mess_min_lon = lon;
 	if (lon > mess_max_lon) mess_max_lon = lon;
+    
+    mess_scale_lat = (mess_max_lat - mess_min_lat)
 }
 
 /**
@@ -179,6 +188,18 @@ void set_xml_pos(Pos pos, pugi::xml_node* into) {
 	
 	into->append_attribute("lat") = lat;
 	into->append_attribute("lon") = lon;
+}
+
+
+int Pos::dist2(Pos p) const {
+    int dx = lat - p.lat;
+    int dy = lon - p.lon;
+    return dx*dx + dy*dy;
+}
+int Pos::distr(Pos p) const {
+    int dx = lat - p.lat;
+    int dy = lon - p.lon;
+    return std::abs(dx) + std::abs(dy);
 }
 
 void parse_auth_response(pugi::xml_node xml_obj, Buffer* into) {
@@ -530,7 +551,6 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 	// Make the buffer bigger if needed. This should not happen, but I don't
 	// like having no fallbacks.
 	if (additional_buffer_needed) {
-		memory_for_messages.trap_alloc(false);
 		memory_for_messages.reserve_space(additional_buffer_needed);
 		additional_buffer_needed = 0;
 	}
@@ -541,7 +561,9 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 		assert(memory_for_messages.size());
 	} while (memory_for_messages.end()[-1] != 0);
 
-    // jout << memory_for_messages.data();
+    if (dump_xml_output) {
+        *dump_xml_output << "<<< incoming <<<\n" << memory_for_messages.data() << '\n';
+    }
     
 	pugi::xml_document doc;
 	assert(doc.load_buffer_inplace(memory_for_messages.data(), memory_for_messages.size()));
@@ -567,6 +589,7 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 
 	auto& mess = into->get<Message_Server2Client>(prev_size);
 	narrow(mess.timestamp, xml_mess.attribute("timestamp").as_ullong());
+    memory_for_messages.trap_alloc(false);
 	return mess.type;
 }
 
@@ -585,6 +608,11 @@ pugi::xml_node prep_message_xml(Message const& mess, pugi::xml_document* into,
 void send_xml_message(Socket& sock, pugi::xml_document& doc) {
 	Socket_writer writer {&sock};
 	doc.save(writer, "", pugi::format_default, pugi::encoding_utf8);
+    if (dump_xml_output) {
+        *dump_xml_output << ">>> outgoing >>>\n";
+        doc.save(*dump_xml_output);
+        *dump_xml_output << '\n';
+    }
 	sock.send({"", 1});
 }
 
@@ -773,16 +801,19 @@ void send_message(Socket& sock, Message_Action const& mess) {
     // Do it up here, so that pugi has no problems with its memory
     auto action_param = generate_action_param(*mess.action);
     memory_for_messages.trap_alloc(true);
-
-    pugi::xml_document doc;    
-	auto xml_mess = prep_message_xml(mess, &doc, "action");
+    {
+        pugi::xml_document doc;    
+        auto xml_mess = prep_message_xml(mess, &doc, "action");
 	
-	auto xml_auth = xml_mess.append_child("action");
-	xml_auth.append_attribute("id") = mess.id;
-	xml_auth.append_attribute("type") = Action::get_name(mess.action->type);
-	xml_auth.append_attribute("param") = action_param;
+        auto xml_auth = xml_mess.append_child("action");
+        xml_auth.append_attribute("id") = mess.id;
+        xml_auth.append_attribute("type") = Action::get_name(mess.action->type);
+        xml_auth.append_attribute("param") = action_param;
 	
-	send_xml_message(sock, doc);
+        send_xml_message(sock, doc);
+    }
+    memory_for_messages.trap_alloc(false);
+    memory_for_messages.reset();
 }
 
 } /* end of namespace jup */

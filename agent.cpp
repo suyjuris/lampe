@@ -5,6 +5,7 @@
 #include <vector>
                  
 #include "buffer.hpp"
+#include "messages.hpp"
 
 namespace jup {
 
@@ -54,14 +55,13 @@ bool get_execution_plan(Simulation const& sim, Perception const& perc, Job const
 
         for (Product const& i: sim.products) {
             if (i.name == item.item and i.assembled) {
-                item.amount = (item.amount - 1) / i.volume + 1;
                 u8 dep = exe().needed.size();
                 exe().needed.push_back(Requirement {Requirement::CRAFT_ITEM, depend, item, i.name, is_tool}, into);
                 for (u8 j: i.tools) {
                     exe().needed.push_back(Requirement {Requirement::CRAFT_ASSIST, dep, {j, 1}, 0}, into);
                 }
                 for (Item_stack j: i.consumed) {
-                    if (not add_req(j, dep, false)) return false;
+                    if (not add_req({j.item, (u8)(j.amount * item.amount)}, dep, false)) return false;
                 }
                 for (u8 j: i.tools) {
                     if (not add_req({j, 1}, 0xff, true)) return false;
@@ -114,10 +114,24 @@ void Mothership_simple::on_request_action() {
                 jobexe_offset = 0;
                 return;
             }
+            for (u8 i = 0; i < job().needed.size(); ++i) {
+                job().needed[i].id = i;
+            }
         } else {
             return;
         }
     }
+
+    auto is_dep = [this](u8 child, u8 parent) -> bool {
+        while (true) {
+            if (child == parent) {
+                return true;
+            } else if (child < parent) {
+                return false;
+            }
+            child = job().needed[child].dependency;
+        }
+    };
 
     //auto& waiting = step_buffer.emplace_back<Flat_array<u8>>(&step_buffer);
 
@@ -156,7 +170,10 @@ void Mothership_simple::on_request_action() {
 
             if (not assigned) {
                 for (int j = 0; j < agent_count; ++j) {
-                    if (agent_task[j].type == Requirement::NOTHING) {
+                    if (agent_task[j].type == Requirement::NOTHING
+                        or (agent_task[j].type == Requirement::CRAFT_ASSIST
+                            and is_dep(i, agent_task[j].dependency))
+                    ) {
                         if (req.is_tool and (not sim(j).role.tools.count(req.item.item)
                             or sim(j).role.speed == 1)) continue;
                     
@@ -172,12 +189,12 @@ void Mothership_simple::on_request_action() {
                             continue;
                         } else if (max_count >= req.item.amount) {
                             agent_task[j] = req;
-                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << (int)req.item.item << ' ' << (int)req.item.amount << '\n';
+                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str() << ' ' << (int)req.item.amount << '\n';
                             req.type = Requirement::NOTHING;
                             break;
                         } else {
                             agent_task[j] = req;
-                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << (int)req.item.item << ' ' << (int)req.item.amount << '\n';
+                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str() << ' ' << (int)req.item.amount << '\n';
                             agent_task[j].item.amount = max_count;
                             req.item.amount -= max_count;
                         }
@@ -205,7 +222,7 @@ void Mothership_simple::on_request_action() {
                     if (agent_task[j].dependency == i and agent_task[j].state >= 2) {
                         if (req.is_tool and (not sim(j).role.tools.count(req.item.item) or sim(j).role.speed == 1)) continue;
                         agent_task[j] = req;
-                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << (int)req.item.item << ' ' << (int)req.item.amount << '\n';
+                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str()  << ' ' << (int)req.item.amount << '\n';
                         req.type = Requirement::NOTHING;
                         assigned = true;
                         break;
@@ -217,7 +234,7 @@ void Mothership_simple::on_request_action() {
                     if (agent_task[j].type == Requirement::NOTHING) {
                         if (req.is_tool and (not sim(j).role.tools.count(req.item.item) or sim(j).role.speed == 1)) continue;
                         agent_task[j] = req;
-                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << (int)req.item.item << ' ' << (int)req.item.amount << '\n';
+                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str()  << ' ' << (int)req.item.amount << '\n';
                         req.type = Requirement::NOTHING;
                         assigned = true;
                         break;
@@ -242,7 +259,7 @@ void Mothership_simple::on_request_action() {
                     for (auto item: perc(j).self.items) {
                         if (item.item == req.item.item) {
                             agent_task[j] = req;
-                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << (int)req.item.item << ' ' << (int)req.item.amount << '\n';
+                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str()  << ' ' << (int)req.item.amount << '\n';
                             req.type = Requirement::NOTHING;
                             assigned = true;
                             break;
@@ -268,6 +285,39 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
             return false;
 		}
 	}
+/*
+    // Emergency measures
+    int min_dist = 0x7fffffff;
+    for (Charging_station const& i : perc().charging_stations) {
+        int dist = i.pos.distr(perc(agent).self.pos);
+		if (dist < min_dist)
+            min_dist = dist;
+	}
+	if ((s.charge - 50) * sim(agent).role.speed < min_dist * 12 / 10) {
+        if (agent_cs[agent] == 0) {
+            int min_diff = 0x7fffffff;
+            for (Charging_station const& i : perc().charging_stations) {
+                auto const& p = s.pos;
+                auto const& q = i.pos;
+                int diff = (p.lat - q.lat)*(p.lat - q.lat) + (p.lon - q.lon)*(p.lon - q.lon);
+                if (diff < min_diff) {
+                    min_diff = diff;
+                    agent_cs[agent] = i.name;
+                }
+            }
+        }
+        if (s.last_action_result == Action::SUCCESSFUL and s.in_facility != agent_cs[agent]
+            and agent_last_go[agent] == agent_cs[agent]) {
+            into->emplace_back<Action_Continue>();
+            return false;
+        } else {
+            into->emplace_back<Action_Goto1>(agent_cs[agent]);
+            agent_last_go[agent] = agent_cs[agent];
+            return false;
+            }
+            }
+*/
+
 
 	if (s.charge * sim(agent).role.speed < 370) {
         if (agent_cs[agent] == 0) {
@@ -292,11 +342,11 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
             return false;
         }
 	}
-
+    
     if (s.in_facility == where) {
         return true;
     } else if (agent_last_go[agent] == where
-        and s.last_action_result == Action::SUCCESSFUL) {
+               and s.last_action_result == Action::SUCCESSFUL) {
         into->emplace_back<Action_Continue>();
         return false;
 	} else {
@@ -337,16 +387,24 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
                 return false;
             }
         } else {
-            if (s.last_action == Action::ASSIST_ASSEMBLE and !s.last_action_result) {
+            int other_agent = -1;
+            for (int i = 0; i < agent_count; ++i) {
+                if (i == agent) continue;
+                if (agent_task[i].type == Requirement::CRAFT_ITEM
+                    /* and agent_task[i].where == job().needed[req.dependency].where */) {
+                    other_agent = i;
+                    break;
+                }
+            }
+
+            if (job().needed[req.dependency].item.amount == 0) {
                 return true;
             } else {
-                for (int i = 0; i < agent_count; ++i) {
-                    if (i == agent) continue;
-                    if (agent_task[i].type == Requirement::CRAFT_ITEM
-                        and agent_task[i].where == job().needed[req.dependency].where) {
-                        into->emplace_back<Action_Assist_assemble>(sim(i).id);
-                        return false;
-                    }
+                if (other_agent != -1) {
+                    req.type = Requirement::CRAFT_ASSIST;
+                    req.state = 1;
+                    into->emplace_back<Action_Assist_assemble>(sim(other_agent).id);
+                    return false;
                 }
                 into->emplace_back<Action_Skip>();
                 return false;
@@ -403,6 +461,10 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         }
         if (req.state == 1) {
             if (s.last_action == Action::ASSEMBLE and !s.last_action_result) {
+                --req.item.amount;
+                --job().needed[req.id].item.amount;
+            }
+            if (req.item.amount == 0) {
                 req.state = 2;
             } else {
                 into->emplace_back<Action_Assemble>(req.item.item);

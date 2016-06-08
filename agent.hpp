@@ -22,6 +22,7 @@ struct Requirement {
     u8 where;
     bool is_tool;
     u8 state = 0;
+    u8 id;
 };
 
 struct Job_execution {

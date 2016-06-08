@@ -26,6 +26,24 @@ void stop_abort_from_printing() {
     CloseHandle(GetStdHandle(STD_ERROR_HANDLE));
 }
 
+// see header
+bool file_exists(Buffer_view path) {
+    // Copied from stackoverflow.com/questions/3828835
+    DWORD attrib = GetFileAttributes(path.c_str());
+    
+    return attrib != INVALID_FILE_ATTRIBUTES
+        and not (attrib & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+// see header
+void cancel_blocking_io(std::thread& thread) {
+    // Very dirty. Assume that threads are implemented using some kind of
+    // pthread variant (which is true under mingw) and call an internal function
+    // to get the Windows handle.
+    assert( CancelSynchronousIo(pthread_gethandle(thread.native_handle()))
+            or GetLastError() == ERROR_NOT_FOUND );
+}
+
 void Process::init(const char* cmdline, const char* dir) {
     assert(cmdline);
     assert(!*this);
@@ -74,10 +92,7 @@ void Process::close() {
     assert( CloseHandle(proc_info.hProcess) );
     assert( CloseHandle(proc_info.hThread) );
 
-    // Very dirty. Assume that threads are implemented using some kind of
-    // pthread variant (which is true under mingw) and call an internal function
-    // to get the Windows handle.
-    assert( CancelSynchronousIo(pthread_gethandle(worker.native_handle())) );
+    cancel_blocking_io(worker);
     
     worker.join();
 }

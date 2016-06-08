@@ -1,13 +1,17 @@
-
 #include <cstring>
-#include <initializer_list>
+#include <csignal>
+#include <iostream>
 #include <io.h>
+#include <initializer_list>
+#include <thread>
 
 #include "server.hpp"
 #include "messages.hpp"
 #include "world.hpp"
 
 namespace jup {
+
+Server* server;
 
 /**
  * Finds the first file matching pattern, while containing none of the string in
@@ -46,86 +50,171 @@ bool find_file_not_containing(
     return 1;
 }
 
-Server::Server(c_str directory, c_str config_par) {
-    general_buffer.reserve(2048);
-
-    int package_pattern = general_buffer.size();
-    general_buffer.append(directory);
-    general_buffer.append("\\target\\agentcontest-*.jar");
-    general_buffer.append("", 1);
-               
-    int package = general_buffer.size();
-    general_buffer.append("..\\target\\");
-    if (!find_file_not_containing(general_buffer.data() + package_pattern,
-                                  {"sources", "javadoc"}, &general_buffer)) {
-        jerr << "Could not find server jar\n";
-        assert(false);
-    }
-    jerr << "Using package: " << general_buffer.data() + package << '\n';
-
-    int config;
-    if (config_par) {
-        config = general_buffer.size();
-        general_buffer.append(config_par);
+bool Server_options::check_valid() {
+    using namespace cmd_options;
+    if (use_internal_server) {
+        if (not massim_loc) {
+            jerr << "The internal server is used, but the location of massim is not specified."
+                "You may want to use the " << MASSIM_LOC << " option.\n";
+            return false;
+        }
     } else {
-        int config_pattern = general_buffer.size();
-        general_buffer.append(directory);
-        general_buffer.append("\\scripts\\conf\\2015*");
-        general_buffer.append("", 1);
-
-        config = general_buffer.size();
-        general_buffer.append("conf\\");
-        if (!find_file_not_containing(general_buffer.data() + config_pattern,
-                                      {"random"}, &general_buffer)) {
-            jerr << "Could not find config file\n";
-            assert(false);
+        if (not host_ip) {
+            jerr << "Connection to external server requested, but the host ip is not specified."
+                "You may want to use the " << HOST_IP << " option.\n";
+            return false;
         }
     }
-    jerr << "Using configuration: " << general_buffer.data() + config << '\n';
+    return true;
+}
 
-    int cmdline = general_buffer.size();
-    general_buffer.append("java -ea -Dcom.sun.management.jmxremote -Xss2000k -X"
-        "mx600M -DentityExpansionLimit=1000000 -DelementAttributeLimit=1000000 "
-        "-Djava.rmi.server.hostname=TST -jar ");
-    general_buffer.append(general_buffer.data() + package);
-    general_buffer.append(" --conf ");
-    general_buffer.append(general_buffer.data() + config);
-    general_buffer.append("", 1);
+/**
+ * Close the java process on termination. This is easier said than done.
+ */
+void handle_sigint(int sig) {
+    assert(sig == SIGINT or sig == SIGABRT or sig == SIGTERM);
+    jerr << "Caught interrupt, cleaning up...\n";
+    program_closing = true;
+    std::signal(SIGABRT, SIG_DFL);
+    delete server;
+    stop_abort_from_printing();
+    std::abort();
+}
 
-    int dir = general_buffer.size();
-    general_buffer.append(directory);
-    general_buffer.append("\\scripts");
-    general_buffer.append("", 1);
+/**
+ * Throw a SIGINT when something is entered into stdin, workaround for mintty's
+ * inability to properly Ctrl-C.
+ */
+void sigint_from_stdin() {
+    std::cin.get();
+    if (std::cin) {
+        std::raise(SIGINT);
+    }
+}
+
+Server::Server(Server_options const& op): options{op} {
+    using namespace cmd_options;
+
+    if (options.use_internal_server) {
+        jout << "Running internal server...\n";
+    } else {
+        jout << "Connecting to external server, IP: " << options.host_ip << ", Port: "
+             << options.host_port << "\n";
+    }
     
-    proc.write_to_stdout = true;
-    proc.init(general_buffer.data() + cmdline, general_buffer.data() + dir);
-    
-	proc.waitFor("[ NORMAL ]  ##   InetSocketListener created");
+    if (op.use_internal_server) {
 
-    general_buffer.reset();
+        // Register signal handling
+        assert(std::signal(SIGINT,  &handle_sigint) != SIG_ERR);
+        assert(std::signal(SIGABRT, &handle_sigint) != SIG_ERR);
+        assert(std::signal(SIGTERM, &handle_sigint) != SIG_ERR);
+
+        if (!is_debugged()) {
+            stdin_listener = std::thread {&sigint_from_stdin};
+        }
+
+        // Start finding the configuration and stuff
+        general_buffer.reserve(2048);
+
+        int package_pattern = general_buffer.size();
+        general_buffer.append(op.massim_loc);
+        general_buffer.append("\\target\\agentcontest-*.jar");
+        general_buffer.append("", 1);
+               
+        int package = general_buffer.size();
+        general_buffer.append("..\\target\\");
+        if (!find_file_not_containing(general_buffer.data() + package_pattern,
+                                      {"sources", "javadoc"}, &general_buffer)) {
+            jerr << "Could not find server jar. You specified the location:\n";
+            jerr << "  " << op.massim_loc << '\n';
+            assert(false);
+        }
+        jerr << "Using package: " << general_buffer.data() + package << '\n';
+
+        int config;
+        if (op.config_loc) {
+            config = general_buffer.size();
+            general_buffer.append(op.config_loc);
+            if (not file_exists(op.config_loc)) {
+                jerr << "The configuration file does not exist. You specified the location:\n  "
+                     << op.config_loc << '\n';
+                assert(false);
+            }
+        } else {
+            int config_pattern = general_buffer.size();
+            general_buffer.append(op.massim_loc);
+            general_buffer.append("\\scripts\\conf\\2015*");
+            general_buffer.append("", 1);
+
+            config = general_buffer.size();
+            general_buffer.append("conf\\");
+            if (!find_file_not_containing(general_buffer.data() + config_pattern,
+                                          {"random"}, &general_buffer)) {
+                jerr << "Could not find config file using the default pattern. Use the "
+                     << CONFIG_LOC << " option to specify a different path. The default pattern is:"
+                     << "\n  " << general_buffer.data() + config_pattern << '\n';
+                assert(false);
+            }
+        }
+        jerr << "Using configuration: " << general_buffer.data() + config << '\n';
+
+        int cmdline = general_buffer.size();
+        general_buffer.append("java -ea -Dcom.sun.management.jmxremote -Xss2000k -Xmx600M -DentityE"
+                              "xpansionLimit=1000000 -DelementAttributeLimit=1000000 -Djava.rmi.ser"
+                              "ver.hostname=TST -jar ");
+        general_buffer.append(general_buffer.data() + package);
+        general_buffer.append(" --conf ");
+        general_buffer.append(general_buffer.data() + config);
+        general_buffer.append("", 1);
+
+        int dir = general_buffer.size();
+        general_buffer.append(op.massim_loc);
+        general_buffer.append("\\scripts");
+        general_buffer.append("", 1);
+    
+        proc.write_to_stdout = true;
+        proc.init(general_buffer.data() + cmdline, general_buffer.data() + dir);
+
+        proc.waitFor("[ NORMAL ]  ##   InetSocketListener created");
+                         
+        general_buffer.reset();
+    }
     
     agents_offset = general_buffer.size();
     general_buffer.emplace_back<Flat_array<Agent_data>>();
     agents().init(&general_buffer);
 }
 
+Server::~Server() {
+    if (stdin_listener.joinable() and stdin_listener.get_id() != std::this_thread::get_id()) {
+        cancel_blocking_io(stdin_listener);
+        std::cin.setstate(std::ios_base::failbit);  
+        stdin_listener.join();
+    } else  {
+        stdin_listener.detach();
+    }
+}
 
 void Server::register_mothership(Mothership* mothership_) {
     mothership = mothership_;
 }
 
-bool Server::register_agent(char const* name, char const* password) {
+bool Server::register_agent(Buffer_view name, Buffer_view password) {
     assert(name);
-    if (!password) {
-        password = "1";
-    }
+    assert(password);
     
     agents().push_back(Agent_data {}, &general_buffer);
     Agent_data& data = agents().back();
 
     data.name = name;
     data.id = agents().size() - 1;
-    data.socket.init("localhost", "12300");
+    if (options.use_internal_server) {
+        data.socket.init("localhost", "12300");
+    } else {
+        data.socket.init(options.host_ip, options.host_port);
+    }
+    
+    
     if (!data.socket) { return false; }
 
     send_message(data.socket, Message_Auth_Request {name, password});
@@ -144,10 +233,31 @@ bool Server::register_agent(char const* name, char const* password) {
     return true;
 }
 
-void Server::run_simulation() {
-    proc.write_to_buffer = false;
-    proc.write_to_stdout = true;
-	proc.send("\n");
+void Server::run_simulation() {    
+    if (options.agents.size()) {
+        for (auto i: options.agents) {
+            if (!server->register_agent(i.name, i.password)) {
+                jerr << "Error: Could not connect agent, exiting.\n";
+                assert(false);
+                return;
+            }
+        }
+    } else {
+        for (auto i: {"a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"}) {
+            if (!server->register_agent(i, "1")) {
+                jerr << "Error: Could not connect agent, exiting.\n";
+                assert(false);
+                return;
+            }
+        }
+    }
+
+    // Press ENTER to start the simulation
+    if (options.use_internal_server) {
+        proc.write_to_buffer = false;
+        proc.write_to_stdout = true;
+        proc.send("\n");
+    }
     
     int max_steps = -1;
 
@@ -164,7 +274,7 @@ void Server::run_simulation() {
     }
 
     for (int step = 0; step < max_steps; ++step) {
-        if (step == max_steps - 1) {
+        if (options.use_internal_server and step == max_steps - 1) {
             proc.write_to_buffer = true;
         }
         
@@ -197,7 +307,9 @@ void Server::run_simulation() {
         }
     }
 
-    proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
+    if (options.use_internal_server) {
+        proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
+    }
     
     for (Agent_data& i: agents()) {
         auto& mess = get_next_message_ref<Message_Sim_End>(i.socket, &general_buffer);
