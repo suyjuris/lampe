@@ -1,7 +1,10 @@
 
 #include "global.hpp"
 
+#define _USE_MATH_DEFINES
+
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iterator>
 #include <memory>
@@ -47,6 +50,9 @@ struct Buffer_writer: public pugi::xml_writer {
 // maximum amount needed for parsing a message should stay constant.)
 static Buffer memory_for_messages;
 
+static int idmap_offset;
+static int idmap16_offset;
+
 // When pugi requests more Memory than memory_for_messages contains, is gets
 // some dynamically. This remembers the amount, so that the buffer will be
 // resized the next time around.
@@ -88,18 +94,31 @@ void deallocate_pugi(void* ptr) {
 	}
 }
 
+
+auto& idmap() {
+    return memory_for_strings.get<Flat_idmap>(idmap_offset);
+}
+auto& idmap16() {
+    return memory_for_strings.get<Flat_idmap_base<u16, u16, 4096>>(idmap16_offset);
+}
+
 // see header
 void init_messages(std::ostream* _dump_xml_output) {
 	pugi::set_memory_management_functions(&allocate_pugi, &deallocate_pugi);
     // 101k is currently used when parsing a perception.
 	memory_for_messages.reserve(256 * 1024);
 
-	// 806 is currently used. This buffer is allowed to grow.
+	// This is just for performance
 	memory_for_strings.reserve(2048);
-	auto& map = memory_for_strings.emplace<Flat_idmap>();
+    
+    idmap_offset = memory_for_strings.size();
+	memory_for_strings.emplace_back<Flat_idmap>();
+    idmap16_offset = memory_for_strings.size();
+	memory_for_strings.emplace_back<Flat_idmap_base<u16, u16, 4096>>();
 	
 	// Guarantee that no id maps to zero
-	assert(map.get_id("", &memory_for_strings) == 0);
+	assert(idmap()  .get_id("", &memory_for_strings) == 0);
+	assert(idmap16().get_id("", &memory_for_strings) == 0);
 
     dump_xml_output = _dump_xml_output;
 }
@@ -108,35 +127,37 @@ void init_messages(std::ostream* _dump_xml_output) {
  * Map the str to an id. If the str is not already mapped a new id will be
  * generated.
  */
-u8 get_id(Buffer_view str) {
-	auto& map = memory_for_strings.get<Flat_idmap>();
-	return map.get_id(str, &memory_for_strings);
+u8  get_id(Buffer_view str) {
+	return idmap()  .get_id(str, &memory_for_strings);
 }
-u8 register_id(Buffer_view str) { return get_id(str); }
+u16 get_id16(Buffer_view str) {
+	return idmap16().get_id(str, &memory_for_strings);
+}
+u8  register_id  (Buffer_view str) { return get_id  (str); }
+u16 register_id16(Buffer_view str) { return get_id16(str); }
 
 // see header
-u8 get_id_from_string(Buffer_view str) {
-	return memory_for_strings.get<Flat_idmap>().get_id(str);
-}
+u8  get_id_from_string  (Buffer_view str) { return idmap()  .get_id(str); }
+u16 get_id_from_string16(Buffer_view str) { return idmap16().get_id(str); }
 
 // see header
-Buffer_view get_string_from_id(u8 id) {
-	auto& map = memory_for_strings.get<Flat_idmap>();
-	return map.get_value(id);
-}
+Buffer_view get_string_from_id(u8  id) { return idmap()  .get_value(id); }
+Buffer_view get_string_from_id(u16 id) { return idmap16().get_value(id); }
 
 // Data for mapping coordinates to u8
-static constexpr double mess_lat_lon_padding = 0.2;
-static bool messages_lat_lon_initialized = false;
-static double mess_min_lat;
-static double mess_max_lat;
-static double mess_min_lon;
-static double mess_max_lon;
-static int mess_scale_lat;
-static int mess_scale_lon;
+constexpr double mess_lat_lon_padding = 0.2;
+bool messages_lat_lon_initialized = false;
+double mess_min_lat;
+double mess_max_lat;
+double mess_min_lon;
+double mess_max_lon;
+float mess_scale_lat;
+float mess_scale_lon;
 
 /**
- * Parse a point and change the min/max lat/lon accordingly.
+ * Parse a point and change the min/max lat/lon accordingly. This assumes that
+ * we are in an area that does not have wrapping longitudes (like 179°´to -179°)
+ * and is nearly planar.
  */
 void add_bound_point(pugi::xml_node xml_obj) {
 	double lat = xml_obj.attribute("lat").as_double();
@@ -153,7 +174,11 @@ void add_bound_point(pugi::xml_node xml_obj) {
 	if (lon < mess_min_lon) mess_min_lon = lon;
 	if (lon > mess_max_lon) mess_max_lon = lon;
     
-    mess_scale_lat = (mess_max_lat - mess_min_lat)
+    float lon_radius = std::cos((mess_max_lat + mess_min_lat) / 360. * M_PI) * radius_earth;
+    auto pmin = get_pos_back({0, 0});
+    auto pmax = get_pos_back({255, 255});
+    mess_scale_lat = (pmax.first  - pmin.first ) / 180.f * (radius_earth * M_PI) / 255.f;
+    mess_scale_lon = (pmax.second - pmin.second) / 180.f * (lon_radius   * M_PI) / 255.f;
 }
 
 /**
@@ -172,35 +197,28 @@ Pos get_pos(pugi::xml_node xml_obj) {
 	return Pos {(u8)(lat * 256.0), (u8)(lon * 256.0)};
 }
 
-/**
- * Map the Pos back to coordinates and write them into an pugi::xml_node
- */
-void set_xml_pos(Pos pos, pugi::xml_node* into) {
-	assert(into);
-
-	constexpr static double pad = mess_lat_lon_padding;
+std::pair<double, double> get_pos_back(Pos pos) {
+    constexpr static double pad = mess_lat_lon_padding;
 	double lat_diff = (mess_max_lat - mess_min_lat);
 	double lon_diff = (mess_max_lon - mess_min_lon);
 	double lat = (double)pos.lat / 256.0;
 	double lon = (double)pos.lon / 256.0;
 	lat = lat * lat_diff * (1 + 2*pad) - lat_diff * pad + mess_min_lat;
 	lon = lon * lon_diff * (1 + 2*pad) - lon_diff * pad + mess_min_lon;
-	
-	into->append_attribute("lat") = lat;
-	into->append_attribute("lon") = lon;
+    return {lat, lon};
 }
 
+/**
+ * Map the Pos back to coordinates and write them into an pugi::xml_node
+ */
+void set_xml_pos(Pos pos, pugi::xml_node* into) {
+	assert(into);
 
-int Pos::dist2(Pos p) const {
-    int dx = lat - p.lat;
-    int dy = lon - p.lon;
-    return dx*dx + dy*dy;
+	auto back = get_pos_back(pos);
+	into->append_attribute("lat") = back.first;
+	into->append_attribute("lon") = back.second;
 }
-int Pos::distr(Pos p) const {
-    int dx = lat - p.lat;
-    int dy = lon - p.lon;
-    return std::abs(dx) + std::abs(dy);
-}
+
 
 void parse_auth_response(pugi::xml_node xml_obj, Buffer* into) {
 	assert(into);
@@ -227,7 +245,7 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 		for (auto xml_prod: xml_obj.child("products")) {
 			space_needed += s * 2 + sizeof(Product)
 				+ sizeof(Item_stack) * distance(xml_prod.child("consumed"))
-				+ sizeof(u8) * distance(xml_prod.child("tools"));
+				+ sizeof(Item_stack) * distance(xml_prod.child("tools"));
 		}
 	}
 	into->reserve_space(space_needed);
@@ -273,9 +291,13 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 		prod->tools.init(into);
 		if (auto xml_tools = xml_prod.child("tools")) {
 			for (auto xml_tool: xml_tools.children("item")) {
-				u8 id = get_id(xml_tool.attribute("name").value());
-				assert(xml_tool.attribute("amount").as_int() == 1);
-				prod->tools.push_back(id, into);
+				// TODO this may actually not hold
+				//u8 id = get_id(xml_tool.attribute("name").value());
+                //assert(xml_tool.attribute("amount").as_int() == 1);
+				Item_stack stack;
+				stack.item = get_id(xml_tool.attribute("name").value());
+				narrow(stack.amount, xml_tool.attribute("amount").as_int());
+				prod->tools.push_back(stack, into);
 			}
 		}
 		++prod;
@@ -390,12 +412,12 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 
 	team.jobs_taken.init(into);
 	for (auto xml_job: xml_team.child("jobs-taken").children("job")) {
-		u8 job_id = get_id(xml_job.attribute("id").value());
+		u16 job_id = get_id(xml_job.attribute("id").value());
 		team.jobs_taken.push_back(job_id, into);
 	}
 	team.jobs_posted.init(into);
 	for (auto xml_job: xml_team.child("jobs-posted").children("job")) {
-		u8 job_id = get_id(xml_job.attribute("id").value());
+		u16 job_id = get_id(xml_job.attribute("id").value());
 		team.jobs_posted.push_back(job_id, into);
 	}
 
@@ -448,9 +470,19 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		for (auto xml_item : xml_fac.children("item")) {
 			Shop_item item;
 			item.item = get_id(xml_item.attribute("name").value());
-			narrow(item.amount, xml_item.attribute("amount").as_int());
-			narrow(item.cost, xml_item.attribute("cost").as_int());
-			narrow(item.restock, xml_item.attribute("restock").as_int());
+            if (auto xml_info = xml_item.child("info")) {
+                if (xml_info.attribute("amount").as_int() > 254) {
+                    item.amount = 254;
+                } else {
+                    narrow(item.amount, xml_info.attribute("amount").as_int());
+                }
+                narrow(item.cost, xml_info.attribute("cost").as_int());
+                narrow(item.restock, xml_info.attribute("restock").as_int());
+            } else {
+                item.amount = 0xff;
+                item.cost = 0;
+                item.restock = 0;
+            }
 			shop->items.push_back(item, into);
 		}
 		++shop;
@@ -490,8 +522,8 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	perc.auction_jobs.init(into);
 	for (auto xml_job: xml_perc.child("jobs").children("auctionJob")) {
 		Job_auction job;
-		job.id      = get_id(xml_job.attribute("id")     .value());
-		job.storage = get_id(xml_job.attribute("storage").value());
+		job.id      = get_id16(xml_job.attribute("id")     .value());
+		job.storage = get_id  (xml_job.attribute("storage").value());
 		narrow(job.begin,   xml_job.attribute("begin") .as_int());
 		narrow(job.end,     xml_job.attribute("end")   .as_int());
 		narrow(job.fine,    xml_job.attribute("fine")  .as_int());
@@ -516,8 +548,8 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	perc.priced_jobs.init(into);
 	for (auto xml_job: xml_perc.child("jobs").children("pricedJob")) {
 		Job_priced job;
-		job.id      = get_id(xml_job.attribute("id")     .value());
-		job.storage = get_id(xml_job.attribute("storage").value());
+		job.id      = get_id16(xml_job.attribute("id")     .value());
+		job.storage = get_id  (xml_job.attribute("storage").value());
 		narrow(job.begin,   xml_job.attribute("begin") .as_int());
 		narrow(job.end,     xml_job.attribute("end")   .as_int());
 		narrow(job.reward,  xml_job.attribute("reward").as_int());

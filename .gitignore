@@ -15,3 +15,5 @@ make.cmd
 **/*.vcxproj.*
 .vs/*
 sim/*
+*.cfg
+out

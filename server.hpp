@@ -13,6 +13,7 @@ constexpr auto CONFIG_LOC = "-c";
 constexpr auto HOST_IP = "-i";
 constexpr auto HOST_PORT = "-p";
 constexpr auto ADD_AGENT = "-a";
+constexpr auto ADD_DUMMY = "-u";
 constexpr auto DUMP_XML = "-d";
 constexpr auto LOAD_CFGFILE = "--load";
     
@@ -21,6 +22,7 @@ constexpr auto LOAD_CFGFILE = "--load";
 struct Server_options {
     struct Agent_option {
         Buffer_view name, password;
+        bool is_dumb = false;
     };
     
     Buffer_view massim_loc;
@@ -49,6 +51,7 @@ class Server {
         Socket socket;
         Buffer_view name = nullptr;
         u8 id;
+        bool is_dumb;
         u16 last_perception_id;
     };
     
@@ -60,10 +63,10 @@ public:
     ~Server();
 
     void register_mothership(Mothership* mothership);
-    bool register_agent(Buffer_view name, Buffer_view password);
+    bool register_agent(Server_options::Agent_option const& agent);
     void run_simulation();
 
-    auto& agents() {
+    Flat_array<Agent_data>& agents() {
         return general_buffer.get<Flat_array<Agent_data>>(agents_offset);
     }
 

@@ -12,7 +12,7 @@ namespace jup {
 
 struct Requirement {
     enum Type : u8 {
-        GET_ITEM, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, NOTHING
+        GET_ITEM, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, VISIT, NOTHING
     };
     
     u8 type;
@@ -26,8 +26,15 @@ struct Requirement {
 };
 
 struct Job_execution {
-    u8 job;
+    u16 job;
+    u32 cost = 0;
     Flat_array<Requirement> needed;
+};
+
+struct Cheap_item {
+    u32 price;
+    u8 item;
+    u8 shop;
 };
 
 struct Mothership_simple: Mothership {
@@ -38,6 +45,7 @@ struct Mothership_simple: Mothership {
     void post_request_action(u8 agent, Buffer* into) override;
 
     bool agent_goto(u8 where, u8 agent, Buffer* into);
+    bool get_execution_plan(Job const& job, Buffer* into);
 
     Buffer general_buffer;
     Buffer step_buffer;
@@ -49,9 +57,19 @@ struct Mothership_simple: Mothership {
     u8 agent_last_go[16];
     int agent_count = 0;
 
+    std::vector<Cheap_item> cheaps;
+    int shop_visited_index = 0;
+
     auto& job() { return general_buffer.get<Job_execution>(jobexe_offset); }
     auto& sim(int i = 0) { return general_buffer.get<Simulation>(sim_offsets[i]); }
     auto& perc(int i = 0) { return step_buffer.get<Perception>(perc_offsets[i]); }
+
+    int find_cheap(u8 id) {
+        for (size_t i = 0; i < cheaps.size(); ++i) {
+            if (cheaps[i].item == id) return i;
+        }
+        return -1;
+    }
 };
 
 

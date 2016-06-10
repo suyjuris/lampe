@@ -24,7 +24,10 @@ void print_usage(c_str argv0) {
          << " " << DUMP_XML  << " [path]  Debug option. If this is specified all xml messages betwe"
          << "en the server and the program are dumped into a file.\n\n"
          << " " << ADD_AGENT  << " [name] [password]  The login credentials for an agent. This opti"
-         << "on may be specified multiple times.\n"
+         << "on may be specified multiple times. It also may use the % symbol at the end of a name,"
+         << "which will be replaced by the numbers 1 to 16.\n"
+         << " " << ADD_DUMMY  << " [name] [password]  Like " << ADD_AGENT << " but adds a dummy tha"
+         << "t does not do anything.\n"
          << " " << LOAD_CFGFILE << " [path]  The file is interpreted as a configfile. See below for"
          << " the syntax.\n\n"
          << " The programm determines automatically whether to run the internal server or connect t"
@@ -79,15 +82,42 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
             if (not pop(&into->dump_xml)) {
                 return false;
             }
-        } else if (arg == ADD_AGENT) {
-            into->agents.emplace_back();
-            if (not pop(&into->agents.back().name)) {
+        } else if (arg == ADD_AGENT or arg == ADD_DUMMY) {
+            bool is_dumb = arg == ADD_DUMMY;
+            Buffer_view name, password;
+            if (not pop(&name)) {
                 return false;
             }
-            if (not pop(&into->agents.back().password)) {
+            
+            if (not pop(&password)) {
                 jerr << "Note: " << ADD_AGENT << " expects both the agent name and the password as "
                      << "separate arguments.\n";
                 return false;
+            }
+
+            if (name.end()[-1] == '%') {
+                for (int i = 1; i <= 16; ++i) {
+                    constexpr int space = 8;
+                    int name_off = into->_string_storage.size();
+                    into->_string_storage.append(name);
+                    into->_string_storage.reserve_space(8);
+                    int written = std::snprintf(into->_string_storage.end() - 1, space, "%d", i);
+                    assert(written < space);
+                    into->_string_storage.addsize(written);
+            
+                    into->agents.emplace_back();
+                    into->agents.back().name = Buffer_view {
+                        into->_string_storage.data() + name_off,
+                        into->_string_storage.size() - name_off - 1
+                    };
+                    into->agents.back().password = password;
+                    into->agents.back().is_dumb = is_dumb;
+                }
+            } else {
+                into->agents.emplace_back();
+                into->agents.back().name = name;
+                into->agents.back().password = password;
+                into->agents.back().is_dumb = is_dumb;
             }
         } else if (arg == LOAD_CFGFILE) {
             if (no_recursion) {
@@ -114,7 +144,10 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
             do {
                 into->_string_storage.reserve_space(space);
                 is.read(into->_string_storage.end(), into->_string_storage.space());
-            } while (is.gcount() < space);
+                into->_string_storage.addsize(is.gcount());
+            } while (into->_string_storage.space() == 0);
+            into->_string_storage.append("", 1);
+            
             int state = 0;
             int last = into->_string_storage.size();
             for (int i = 0; i < into->_string_storage.size(); ++i) {
@@ -123,8 +156,10 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
                         if (last < i) {
                             into->_string_storage[i]  = '\0';
                             args.push_back(&into->_string_storage[last]);
-                            // Handle this option differently, because it needs two arguments
+                            // Handle these options differently, because it needs two arguments
                             if (std::strcmp(args.back(), ADD_AGENT) == 0 and state == 0) {
+                                state = 4;
+                            } else if (std::strcmp(args.back(), ADD_DUMMY) == 0 and state == 0) {
                                 state = 4;
                             } else {
                                 state = 1;
@@ -169,6 +204,10 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 
 int main(int argc, c_str const* argv) {
     Server_options options;
+    // TODO Add offset pointers and make this not unnecessary
+    options._string_storage.reserve_space(4096);
+    options._string_storage.trap_alloc(true);
+    
     std::ofstream dump_xml;
     
     if (argc <= 1) {

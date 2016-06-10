@@ -251,7 +251,7 @@ public:
 	 */
 	bool trap_alloc() const {
 #ifndef NDEBUG
-		return (u32)m_capacity >> 31;
+		return ((u32)m_capacity >> 31) and not program_closing;
 #else
 		return false;
 #endif
