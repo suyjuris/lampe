@@ -83,17 +83,6 @@ bool get_execution_plan(Simulation const& sim, Perception const& perc, Job const
 }
 
 void Mothership_simple::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
-    if (agent >= agents_per_team) return;
-	if (agent == 0) {
-		world.seed_capital = simulation.seed_capital;
-		world.max_steps = simulation.steps;
-		world.simulation_id = simulation.id;
-		world.team = simulation.team;
-		//world.products = &general_buffer.emplace<Flat_array<Product>>();
-		//world.products->init(simulation.products, &general_buffer);
-		world.products = const_cast<Flat_array<Product>*>(&simulation.products);
-	}
-	world.agents[agent].role = simulation.role.name;
     sim_offsets[agent] = general_buffer.size();
     general_buffer.append(&simulation, sim_size);
     agent_task[agent] = { Requirement::NOTHING };
@@ -108,66 +97,6 @@ void Mothership_simple::pre_request_action() {
 
 void Mothership_simple::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
     if (agent >= agents_per_team) return;
-	if (agent == 0) {
-		if (perc.simulation_step == 0) {
-			world.deadline = perc.deadline;
-			world.simulation_step = perc.simulation_step;
-			world.charging_stations = &general_buffer.emplace<Flat_array<Charging_station>>();
-			world.charging_stations->init(perc.charging_stations, &general_buffer);
-			world.dump_locations = &general_buffer.emplace<Flat_array<Dump_location>>();
-			world.dump_locations->init(perc.dump_locations, &general_buffer);
-			world.shops = &general_buffer.emplace<Flat_array<Shop>>();
-			world.shops->init(perc.shops, &general_buffer);
-			world.workshops = &general_buffer.emplace<Flat_array<Workshop>>();
-			world.workshops->init(perc.workshops, &general_buffer);
-		}
-		world.storages = &step_buffer.emplace<Flat_array<Storage>>();
-		world.storages->init(perc.storages, &step_buffer);
-		world.auction_jobs = &step_buffer.emplace<Flat_array<Job_auction>>();
-		world.auction_jobs->init(perc.auction_jobs, &step_buffer);
-		world.priced_jobs = &step_buffer.emplace<Flat_array<Job_priced>>();
-		world.priced_jobs->init(perc.priced_jobs, &step_buffer);
-		u8 i = 0;
-		for (Entity const& e : perc.entities) {
-			if (e.team != world.team) {
-				assert(i < agents_per_team);
-				world.opponents[i++] = e;
-			}
-		}
-	}
-	world.agents[agent].action_id = perc.id;
-	world.agents[agent].charge = perc.self.charge;
-	world.agents[agent].f_position = perc.self.f_position;
-	world.agents[agent].in_facility = perc.self.in_facility;
-	world.agents[agent].last_action = perc.self.last_action;
-	world.agents[agent].last_action_result = perc.self.last_action_result;
-	world.agents[agent].load = perc.self.load;
-	world.agents[agent].pos = perc.self.pos;
-	world.agents[agent].route_length = perc.self.route_length;
-	// Flat_array.copy
-	world.agents[agent].items = const_cast<Flat_array<Item_stack>*>(&perc.self.items);
-	world.agents[agent].route = const_cast<Flat_array<Pos>*>(&perc.self.route);
-
-	for (Charging_station const& f : perc.charging_stations) {
-		if (f.q_size != (u8)-1) {
-			world.getByID<Charging_station>(f.name)->q_size = f.q_size;
-		}
-	}
-
-	for (Shop const& f : perc.shops) {
-		for (Shop_item const& i : f.items) {
-			if (i.amount > 0) {
-				Shop *s = world.getByID<Shop>(f.name);
-				for (Shop_item & j : s->items) {
-					if (i.item == j.item) {
-						j.amount = i.amount;
-						j.cost = i.cost;
-						j.restock = i.restock;
-					}
-				}
-			}
-		}
-	}
 
     perc_offsets[agent] = step_buffer.size();
     step_buffer.append(&perc, perc_size);
@@ -383,9 +312,6 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         return;
     }
 
-	into->emplace_back<Action_Skip>();
-	return;
-
     auto& req = agent_task[agent];
 
     auto get_target = [&req, this]() {
@@ -519,26 +445,6 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
     return;
 }
 
-
-template <>
-Charging_station * Mothership_simple::World::getByID<Charging_station>(u8 id) {
-	for (Charging_station & f : *charging_stations) {
-		if (f.name == id) {
-			return &f;
-		}
-	}
-	return nullptr;
-}
-
-template <>
-Shop * Mothership_simple::World::getByID<Shop>(u8 id) {
-	for (Shop & f : *shops) {
-		if (f.name == id) {
-			return &f;
-		}
-	}
-	return nullptr;
-}
 
 /*
 u8 find_item_source(u8 item, Simulation const& sim, Perception const& perc) {
@@ -745,6 +651,153 @@ Action const& random_agent (Agent const& agent) {
     return buffer.emplace_back<Action_Skip>();
 }
 */
+
+void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
+	if (agent >= agents_per_team) return;
+	if (agent == 0) {
+		world_offset = 0;
+		general_buffer.emplace_back<World>();
+		world().simulation_id = simulation.id;
+		world().team = simulation.team;
+		world().seed_capital = simulation.seed_capital;
+		world().max_steps = simulation.steps;
+		world().products.init(simulation.products, &general_buffer);
+		world().roles.init(&general_buffer);
+	}
+	u8 rname = simulation.role.name;
+	world().agents[agent].role = rname;
+	if (world().get_by_id<Role>(rname) == nullptr) {
+		world().roles.push_back(simulation.role, &general_buffer);
+	}
+}
+
+void Mothership_complex::pre_request_action() {
+	step_buffer.reset();
+}
+
+void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
+	if (agent >= agents_per_team) return;
+	if (perc.simulation_step == 0) {
+		if (agent == 0) {
+			u8 i = 0;
+			for (Entity const& e : perc.entities) {
+				if (e.team != world().team) {
+					world().opponent_team = e.team;
+					world().opponents[i].name = e.name;
+					world().opponents[i++].role = e.role;
+				}
+			}
+			world().charging_stations.init(&general_buffer);
+			for (Charging_station const& f : perc.charging_stations) {
+				Charging_station_static & s = world().charging_stations.emplace_back(&general_buffer);
+				s.name = f.name;
+				s.pos = f.pos;
+				s.price = f.price;
+				s.rate = f.rate;
+				s.slots = f.slots;
+			}
+			world().dump_locations.init(perc.dump_locations, &general_buffer);
+			world().shops.init(&general_buffer);
+			for (Shop const& f : perc.shops) {
+				Shop_static & s = world().shops.emplace_back(&general_buffer);
+				s.name = f.name;
+				s.pos = f.pos;
+			}
+			i = 0;
+			for (Shop const& f : perc.shops) {
+				Shop_static & s = world().shops[i++];
+				s.items.init(&general_buffer);
+				for (Shop_item i : f.items) {
+					Shop_item_static & is = s.items.emplace_back(&general_buffer);
+					is.item = i.item;
+				}
+			}
+			world().storages.init(&general_buffer);
+			for (Storage const& f : perc.storages) {
+				Storage_static & s = world().storages.emplace_back(&general_buffer);
+				s.name = f.name;
+				s.pos = f.pos;
+				s.price = f.price;
+				s.totalCapacity = f.totalCapacity;
+			}
+			world().workshops.init(perc.workshops, &general_buffer);
+		}
+		//world().agents[agent].name = perc.self.name;
+	}
+	if (agent == 0) {
+		step_offset = 0;
+		step_buffer.emplace_back<Situation>();
+		situation().deadline = perc.deadline;
+		situation().simulation_step = perc.simulation_step;
+		situation().team.money = perc.team.money;
+		situation().team.jobs_taken.init(perc.team.jobs_taken, &step_buffer);
+		situation().team.jobs_posted.init(perc.team.jobs_posted, &step_buffer);
+		u8 i = 0;
+		for (Entity const& e : perc.entities) {
+			situation().opponents[i++].pos = e.pos;
+		}
+		situation().charging_stations.init(&step_buffer);
+		for (u8 i = 0; i < perc.charging_stations.size(); i++) {
+			situation().charging_stations.emplace_back(&step_buffer);
+		}
+		situation().shops.init(&step_buffer);
+		for (u8 i = 0; i < perc.shops.size(); i++) {
+			situation().shops.emplace_back(&step_buffer);
+		}
+		situation().storages.init(&step_buffer);
+		for (Storage const& f : perc.storages) {
+			Storage_dynamic & s = situation().storages.emplace_back(&step_buffer);
+			s.usedCapacity = f.usedCapacity;
+		}
+		situation().auction_jobs.init(perc.auction_jobs, &step_buffer);
+		i = 0;
+		for (Job_auction const& f : perc.auction_jobs) {
+			Job_auction & j = situation().auction_jobs[i++];
+			j.items.init(f.items, &step_buffer);
+		}
+		situation().priced_jobs.init(perc.priced_jobs, &step_buffer);
+		i = 0;
+		for (Job_priced const& f : perc.priced_jobs) {
+			Job_priced & j = situation().priced_jobs[i++];
+			j.items.init(f.items, &step_buffer);
+		}
+	}
+	u8 i = 0;
+	for (Charging_station const& f : perc.charging_stations) {
+		if (f.q_size != 0xff) {
+			situation().charging_stations[i].q_size = f.q_size;
+		}
+		i++;
+	}
+	i = 0;
+	for (Shop const& f : perc.shops) {
+		u8 j = 0;
+		for (Shop_item const& si : f.items) {
+			if (si.cost != 0) world().shops[i].items[j].cost = si.cost;
+			if (si.amount != 0) situation().shops[i].items[j].amount = si.amount;
+			if (si.restock != 0) situation().shops[i].items[j].restock = si.restock;
+			j++;
+		}
+		i++;
+	}
+}
+
+void Mothership_complex::on_request_action() {
+
+}
+
+void Mothership_complex::post_request_action(u8 agent, Buffer* into) {
+	if (agent >= agents_per_team) {
+		into->emplace_back<Action_Skip>();
+		return;
+	}
+
+	into->emplace_back<Action_Skip>();
+	return;
+
+}
+
+
 
 } /* end of namespace jup */
 

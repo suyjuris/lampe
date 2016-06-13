@@ -50,10 +50,12 @@ struct Flat_array {
 	}
 
 	void init(Flat_array<Type, Offset_t, Size_t> const& orig, Buffer* containing) {
-		init(containing);
-		for (Type const& var : orig) {
-			push_back(var, containing);
-		}
+		Size_t size = orig.m_size();
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			and (void*)this < (void*)containing->end());
+		narrow(start, containing->end() - (char*)this);
+		containing->append(orig.begin(), sizeof(Size_t) + size * sizeof(T));
 	}
 
 	Size_t size() const {

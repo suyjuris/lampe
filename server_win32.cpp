@@ -5,7 +5,6 @@
 
 #include "server.hpp"
 #include "messages.hpp"
-#include "world.hpp"
 
 namespace jup {
 

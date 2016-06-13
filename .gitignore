@@ -1,13 +1,13 @@
 **/*.o
 **/*.d
 **/*.exe
+**/*.bat
+**/*.cmd
 **/~*
 **/#*
 **/*~
 x64/*
 Debug/*
-make.bat
-make.cmd
 **/*.opensdf
 **/*.sdf
 **/*.sln

@@ -24,8 +24,6 @@ struct Product {
 	u16 volume;
 	Flat_array<Item_stack> consumed;
 	Flat_array<u8> tools;
-
-	static Product const* getByID(u8 id);
 };
 
 struct Role {
@@ -275,14 +273,10 @@ struct Charging_station : Facility {
 	u16 price;
 	u8 slots;
 	u8 q_size; // -1 if <info> not visible
-
-	static Charging_station const* getByID(u8 id);
 };
 
 struct Dump_location : Facility {
 	u16 price;
-
-	static Dump_location const* getByID(u8 id);
 };
 
 struct Shop_item : Item_stack {
@@ -292,8 +286,6 @@ struct Shop_item : Item_stack {
 
 struct Shop : Facility {
 	Flat_array<Shop_item> items;
-
-	static Shop const* getByID(u8 id);
 };
 
 struct Storage_item : Item_stack {
@@ -305,14 +297,10 @@ struct Storage : Facility {
 	u16 totalCapacity;
 	u16 usedCapacity;
 	Flat_array<Storage_item> items;
-
-	static Storage const* getByID(u8 id);
 };
 
 struct Workshop : Facility {
 	u16 price;
-
-	static Workshop const* getByID(u8 id);
 };
 
 struct Job_item: Item_stack {

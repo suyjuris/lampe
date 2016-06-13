@@ -69,7 +69,7 @@ int main(int argc, c_str const* argv) {
     
 	init_messages();
 	Socket_context socket_context;
-    Mothership_simple mothership;
+    Mothership_complex mothership;
 
     server->register_mothership(&mothership);
 
