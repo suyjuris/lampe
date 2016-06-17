@@ -152,10 +152,6 @@ struct World {
 	Flat_array<Storage_static> storages;
 	Flat_array<Workshop> workshops;
 
-	template <typename T>
-	T * get_by_id(u8 id, Situation const* s = nullptr) {
-		return nullptr;
-	}
 };
 
 struct Mothership_complex : Mothership {
@@ -168,27 +164,32 @@ struct Mothership_complex : Mothership {
 
 	Buffer general_buffer;
 	Buffer step_buffer;
+	Buffer last_step_buffer;
 
-	u16 world_offset;
-	u16 step_offset;
+	auto& world() { return general_buffer.get<World>(0); }
+	auto& situation() { return step_buffer.get<Situation>(0); }
+	auto& last_situation() { return last_step_buffer.get<Situation>(0); }
 
-	auto& world() { return general_buffer.get<World>(world_offset); }
-	auto& situation() { return step_buffer.get<Situation>(step_offset); }
+	template <typename T>
+	T * get_by_id(u8 id) {
+		return nullptr;
+	}
+
+	u32 rate_situation(Situation const& s);
 };
 
-template <>
-Charging_station * World::get_by_id<Charging_station>(u8 id, Situation const* s);
+#define gbi(T)\
+template <>\
+T * Mothership_complex::get_by_id<T>(u8 id);
 
-template <>
-Dump_location * World::get_by_id<Dump_location>(u8 id, Situation const* s);
+gbi(Role)
+gbi(Product)
+gbi(Charging_station_static)
+gbi(Dump_location)
+gbi(Shop_static)
+gbi(Storage)
+gbi(Workshop)
 
-template <>
-Shop * World::get_by_id<Shop>(u8 id, Situation const* s);
-
-template <>
-Storage * World::get_by_id<Storage>(u8 id, Situation const* s);
-
-template <>
-Workshop * World::get_by_id<Workshop>(u8 id, Situation const* s);
+#undef gbi
 
 } /* end of namespace jup */
