@@ -14,7 +14,7 @@ constexpr char const unsigned agents_per_team = 16;
 
 struct Requirement {
     enum Type : u8 {
-        GET_ITEM, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, NOTHING
+        GET_ITEM, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, VISIT, NOTHING
     };
     
     u8 type;
@@ -24,11 +24,19 @@ struct Requirement {
     u8 where;
     bool is_tool;
     u8 state = 0;
+    u8 id;
 };
 
 struct Job_execution {
-    u8 job;
+    u16 job;
+    u32 cost = 0;
     Flat_array<Requirement> needed;
+};
+
+struct Cheap_item {
+    u32 price;
+    u8 item;
+    u8 shop;
 };
 
 struct Mothership_simple: Mothership {
@@ -40,6 +48,7 @@ struct Mothership_simple: Mothership {
     void post_request_action(u8 agent, Buffer* into) override;
 
     bool agent_goto(u8 where, u8 agent, Buffer* into);
+    bool get_execution_plan(Job const& job, Buffer* into);
 
 
     Buffer general_buffer;
@@ -52,9 +61,19 @@ struct Mothership_simple: Mothership {
     u8 agent_last_go[agents_per_team];
     int agent_count = 0;
 
+    std::vector<Cheap_item> cheaps;
+    int shop_visited_index = 0;
+
     auto& job() { return general_buffer.get<Job_execution>(jobexe_offset); }
     auto& sim(int i = 0) { return general_buffer.get<Simulation>(sim_offsets[i]); }
     auto& perc(int i = 0) { return step_buffer.get<Perception>(perc_offsets[i]); }
+
+    int find_cheap(u8 id) {
+        for (size_t i = 0; i < cheaps.size(); ++i) {
+            if (cheaps[i].item == id) return i;
+        }
+        return -1;
+    }
 };
 
 struct Charging_station_static : Facility {
@@ -70,6 +89,7 @@ struct Charging_station_dynamic {
 struct Shop_item_static {
 	u8 item;
 	u16 cost;
+    u8 period;
 };
 
 struct Shop_item_dynamic {
@@ -136,7 +156,7 @@ struct Situation {
 
 struct World {
 	u8 simulation_id;
-	u8 team;
+	u8 team_id;
 	u8 opponent_team;
 	u16 seed_capital;
 	u16 max_steps;
@@ -171,25 +191,33 @@ struct Mothership_complex : Mothership {
 	auto& last_situation() { return last_step_buffer.get<Situation>(0); }
 
 	template <typename T>
-	T * get_by_id(u8 id) {
+	T* get_by_id(u8 id) {
 		return nullptr;
 	}
 
 	u32 rate_situation(Situation const& s);
 };
 
-#define gbi(T)\
+#define gbi(T, m)\
 template <>\
-T * Mothership_complex::get_by_id<T>(u8 id);
+T * Mothership_complex::get_by_id<T>(u8 id) {\
+	for (T & x : m) {\
+		if (x.name == id) {\
+			return &x;\
+		}\
+	}\
+	return nullptr;\
+}
 
-gbi(Role)
-gbi(Product)
-gbi(Charging_station_static)
-gbi(Dump_location)
-gbi(Shop_static)
-gbi(Storage)
-gbi(Workshop)
+gbi(Role, world().roles)
+gbi(Product, world().products)
+gbi(Charging_station_static, world().charging_stations)
+gbi(Dump_location, world().dump_locations)
+gbi(Shop_static, world().shops)
+gbi(Workshop, world().workshops)
 
 #undef gbi
+
+void internal_simulation_step(World const& world, Situation& sit);
 
 } /* end of namespace jup */

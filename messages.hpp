@@ -1,5 +1,7 @@
 #pragma once
 
+#include <utility>
+
 #include "buffer.hpp"
 #include "objects.hpp"
 #include "sockets.hpp"
@@ -34,10 +36,10 @@ struct Message_Auth_Request: Message_Client2Server {
 	 * This uses strings for now, as this message is only sent a handfull of
 	 * times and not performance critical.
 	 */
-	Message_Auth_Request(std::string user, std::string pass):
+	Message_Auth_Request(Buffer_view user, Buffer_view pass):
 		username{user}, password{pass} { type = AUTH_REQUEST; }
 	
-	std::string username, password;				 
+	Buffer_view username, password;				 
 };
 
 struct Message_Action: Message_Client2Server {
@@ -74,7 +76,7 @@ struct Message_Sim_End: Message_Server2Client {
 	Message_Sim_End() { type = Type_value; }
 
 	u8 ranking;
-	u32 score;
+	s32 score;
 };
 
 struct Message_Bye: Message_Server2Client {
@@ -89,21 +91,47 @@ struct Message_Request_Action: Message_Server2Client {
 	Perception perception;
 };
 
-/**
- * Performs various initlization functions. Call before get_next_message or send_message.
- */
-void init_messages();
+// Some constants for distance calculations
+extern bool messages_lat_lon_initialized;
+extern double mess_min_lat;
+extern double mess_max_lat;
+extern double mess_min_lon;
+extern double mess_max_lon;
+extern float mess_scale_lat;
+extern float mess_scale_lon;
+// The approximate radius of the earth in m
+static constexpr float radius_earth = 6371e3;
+// The speed that 1 (e.g. the truck) represents in m/step
+static constexpr float speed_conversion = 80;
 
-u8 register_id(Buffer_view str);
+/**
+ * Returns the actual coordinates from a position
+ */
+std::pair<double, double> get_pos_back(Pos pos);
+
+/**
+ * Performs various initialization functions. Call before get_next_message or send_message.
+ */
+void init_messages(std::ostream* _dump_xml_output = nullptr);
+
+u8  register_id  (Buffer_view str);
+u16 register_id16(Buffer_view str);
 
 /**
  * Return the id of the string. The empty string is guaranteed to have the id
  * 0. Different strings of different domains may have the same id (currently
  * they don't). If the str is not mapped, the behaviour is undefined.
  */
-u8 get_id_from_string(Buffer_view str);
+u8  get_id_from_string  (Buffer_view str);
+u16 get_id_from_string16(Buffer_view str);
 
-
+/**
+ * Return the string belonging to the specified id. This will return the empty
+ * string if given a 0.
+ */
+Buffer_view get_string_from_id(u8  id);
+Buffer_view get_string_from_id(u16 id);
+    
 /**
  * Writes the next message in the Socket into the end of the Buffer. Returns the
  * type of the Message read. Blocks.

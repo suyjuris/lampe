@@ -26,6 +26,16 @@ bool is_debugged();
  */
 void stop_abort_from_printing();
 
+/**
+ * Returns whether a file exists.
+ */
+bool file_exists(Buffer_view path);
+
+/**
+ * This cancels any pending IO operations of the thread.
+ */
+void cancel_blocking_io(std::thread& thread);
+
 class Process {
 public:
     bool write_to_buffer = true;
@@ -51,9 +61,9 @@ public:
     
 private:
     /**
-     * read is the pipe we are reading from, read_other is the other end of the pipe.
+     * read is the pipe we are reading from
      */
-    HANDLE read, write, read_other, write_other;
+    HANDLE read, write;
     PROCESS_INFORMATION proc_info;
     Buffer buffer;         
     std::thread worker;    

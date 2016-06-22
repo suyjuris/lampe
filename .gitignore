@@ -15,3 +15,5 @@ Debug/*
 **/*.vcxproj.*
 .vs/*
 sim/*
+*.cfg
+out

@@ -102,8 +102,8 @@ struct Flat_array {
 		assert(containing);
 		assert((void*)containing->begin() <= (void*)this
 			   and (void*)end() == (void*)containing->end());
-		containing->emplace_back<T>(obj);
 		++m_size();
+		containing->emplace_back<T>(obj);
 	}
 
 	/**

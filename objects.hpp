@@ -14,6 +14,10 @@ struct Item_stack {
 struct Pos {
 	u8 lat;
 	u8 lon;
+    
+	float dist (Pos p) const;
+	float dist2(Pos p) const;
+	float distr(Pos p) const;
 };
 
 u16 operator-(Pos const p1, Pos const p2);
@@ -23,7 +27,7 @@ struct Product {
 	bool assembled;
 	u16 volume;
 	Flat_array<Item_stack> consumed;
-	Flat_array<u8> tools;
+	Flat_array<Item_stack> tools;
 };
 
 struct Role {
@@ -176,9 +180,9 @@ struct Action_Assist_assemble: Action {
 };
 
 struct Action_Deliver_job: Action {
-	Action_Deliver_job(u8 job):
+	Action_Deliver_job(u16 job):
 		Action{DELIVER_JOB}, job{job} {}
-	u8 job;
+	u16 job;
 };
 
 struct Action_Charge: Action {
@@ -186,28 +190,29 @@ struct Action_Charge: Action {
 };
 
 struct Action_Bid_for_job: Action {
-	Action_Bid_for_job(u8 job, u16 price):
+	Action_Bid_for_job(u16 job, u32 price):
 		Action{BID_FOR_JOB}, job{job}, price{price} {}
-	u8 job;
-	u16 price;
+	u16 job;
+	u32 price;
 };
 
 struct Action_Post_job1: Action {
-	Action_Post_job1(u16 max_price, u16 fine, u16 active_steps,
+	Action_Post_job1(u32 max_price, u16 fine, u16 active_steps,
 					 u16 auction_steps, u8 storage):
 		Action{POST_JOB1}, max_price{max_price}, fine{fine},
 		active_steps{active_steps}, auction_steps{auction_steps},
 		storage{storage} {}
-	u16 max_price, fine, active_steps, auction_steps;
+	u32 max_price, fine, active_steps, auction_steps;
 	u8 storage;
 	Flat_array<Item_stack> items;
 };
 
 struct Action_Post_job2: Action {
-	Action_Post_job2(u16 price, u16 active_steps, u8 storage):
+	Action_Post_job2(u32 price, u16 active_steps, u8 storage):
 		Action{POST_JOB2}, price{price}, active_steps{active_steps},
 		storage{storage} {}
-	u16 price, active_steps;
+	u32 price;
+    u16 active_steps;
 	u8 storage;
 	Flat_array<Item_stack> items;
 };
@@ -252,8 +257,8 @@ struct Self {
 
 struct Team {
 	u16 money;
-	Flat_array<u8> jobs_taken;
-	Flat_array<u8> jobs_posted;
+	Flat_array<u16> jobs_taken;
+	Flat_array<u16> jobs_posted;
 };
 
 struct Entity {
@@ -270,13 +275,13 @@ struct Facility {
 
 struct Charging_station : Facility {
 	u8 rate;
-	u16 price;
+	u32 price;
 	u8 slots;
 	u8 q_size; // -1 if <info> not visible
 };
 
 struct Dump_location : Facility {
-	u16 price;
+	u32 price;
 };
 
 struct Shop_item : Item_stack {
@@ -293,14 +298,14 @@ struct Storage_item : Item_stack {
 };
 
 struct Storage : Facility {
-	u8 price;
+	u32 price;
 	u16 totalCapacity;
 	u16 usedCapacity;
 	Flat_array<Storage_item> items;
 };
 
 struct Workshop : Facility {
-	u16 price;
+	u32 price;
 };
 
 struct Job_item: Item_stack {
@@ -308,7 +313,7 @@ struct Job_item: Item_stack {
 };
 
 struct Job {
-	u8 id;
+	u16 id;
 	u8 storage;
 	u16 begin;
 	u16 end;
@@ -316,12 +321,12 @@ struct Job {
 };
 
 struct Job_auction : Job {
-	u16 fine;
-	u16 max_bid;
+	u32 fine;
+	u32 max_bid;
 };
 
 struct Job_priced : Job {
-	u16 reward;
+	u32 reward;
 };
 
 struct Perception {
