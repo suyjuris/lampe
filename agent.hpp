@@ -197,8 +197,8 @@ struct Mothership_complex : Mothership {
 	void on_request_action() override;
 	void post_request_action(u8 agent, Buffer* into) override;
 
-    bool agent_goto(Situation const& sit, u8 where, u8 agent, Buffer* into);
-    void get_agent_action(Situation const& sit, u8 agent, Buffer* into);
+    bool agent_goto(Situation& sit, u8 where, u8 agent, Buffer* into);
+    void get_agent_action(Situation& sit, u8 agent, Buffer* into);
     void internal_simulation_step(Situation& sit);
 
 	Buffer general_buffer;
@@ -219,7 +219,7 @@ struct Mothership_complex : Mothership {
 
 #define gbi(T, m)\
 template <>\
-T * Mothership_complex::get_by_id<T>(u8 id) {\
+inline T * Mothership_complex::get_by_id<T>(u8 id) {\
 	for (T & x : m) {\
 		if (x.name == id) {\
 			return &x;\

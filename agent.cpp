@@ -645,7 +645,7 @@ void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, in
 		general_buffer.reset();
 		general_buffer.emplace_back<World>();
 		world().simulation_id = simulation.id;
-		world().team = simulation.team;
+		world().team_id = simulation.team;
 		world().seed_capital = simulation.seed_capital;
 		world().max_steps = simulation.steps;
 		world().products.init(simulation.products, &general_buffer);
@@ -669,7 +669,7 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 		if (perc.simulation_step == 0) {
 			u8 i = 0;
 			for (Entity const& e : perc.entities) {
-				if (e.team != world().team) {
+				if (e.team != world().team_id) {
 					world().opponent_team = e.team;
 					world().opponents[i].name = e.name;
 					world().opponents[i++].role = e.role;
@@ -804,13 +804,12 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 
 
 bool Mothership_complex::agent_goto(Situation& sit, u8 where, u8 agent, Buffer* into) {
-    auto const& s = world().agents[agent];
-    auto const& d = sit.agents[agent];
+    auto& d = sit.agents[agent];
     
-    if (s.in_facility == where) {
+    if (d.in_facility == where) {
         return true;
     } else if (d.last_go == where
-               and s.last_action_result == Action::SUCCESSFUL) {
+               and d.last_action_result == Action::SUCCESSFUL) {
         into->emplace_back<Action_Continue>();
         return false;
 	} else {
@@ -820,16 +819,15 @@ bool Mothership_complex::agent_goto(Situation& sit, u8 where, u8 agent, Buffer* 
     }
 }
 
-void Mothership_complex::get_agent_action(Situation const& sit, u8 agent, Buffer* into) {
-    auto const& s = world().agents[agent];
-    auto const& d = sit.agents[agent];
+void Mothership_complex::get_agent_action(Situation& sit, u8 agent, Buffer* into) {
+    auto& d = sit.agents[agent];
     
     if (d.task.type == Task::NONE) {
         into->emplace_back<Action_Abort>();
         return;
     } else if (d.task.type == Task::BUY_ITEM) {
         if (d.task.state == 0) {
-            if (agent_goto(world(), sit, d.task.where, agent, into)) {
+            if (agent_goto(sit, d.task.where, agent, into)) {
                 d.task.state = 1;
             } else {
                 return;
@@ -839,7 +837,7 @@ void Mothership_complex::get_agent_action(Situation const& sit, u8 agent, Buffer
             if (d.last_action == Action::BUY and not d.last_action_result) {
                 d.task.type = Task::NONE;
             } else {
-                into->emplace_back<Action_Buy>(req.item);
+                into->emplace_back<Action_Buy>(d.task.item);
                 return;
             }
         }
@@ -855,7 +853,7 @@ void Mothership_complex::get_agent_action(Situation const& sit, u8 agent, Buffer
 void Mothership_complex::internal_simulation_step(Situation& sit) {
     // Restock shops
     for (int i = 0; i < sit.shops.size(); ++i) {
-        for (int j = 0; j < sit.shops[i].size(); ++j) {
+        for (int j = 0; j < sit.shops[i].items.size(); ++j) {
             auto item = sit.shops[i].items[j];
             --item.restock;
             if (item.restock == 0) {
@@ -868,8 +866,21 @@ void Mothership_complex::internal_simulation_step(Situation& sit) {
     // TODO Implement storage pricing
 
     // Execute agent actions
-    for (int i = 0; i < agents_per_team; ++i) {
-        int action_offset = step
+    for (int agent = 0; agent < agents_per_team; ++agent) {
+        auto& d = sit.agents[agent];
+
+        int action_offset = step_buffer.size();
+        get_agent_action(sit, agent, &step_buffer);
+        u8 type = step_buffer.get<Action>(action_offset).type;
+        d.last_action = type;
+        if (type == Action::GOTO1) { 
+            if (d.charge <= 0) {     
+                d.last_action_result = Action::SUCCESSFUL;
+                continue;
+            }
+            d.charge = std::max(d.charge - 100, 0);
+            
+        }
     }
 }
 
@@ -980,7 +991,7 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 	u16 r = s.team.money;
 
 	for (u8 n = 0; n < job_depth; n++) {
-		ti_stack.push(team_items);
+		ti_stack.push_back(team_items);
 		u16 br = 0;
 		u16 bj = 0xffff;
 		for (u16 i = 0; i < s.priced_jobs.size(); i++) {
@@ -998,9 +1009,9 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 				br = jr;
 				bj = i;
 			}
-			team_items = ti_stack.top();
+			team_items = ti_stack.back();
 		}
-		ti_stack.pop();
+		ti_stack.pop_back();
 		if (bj == 0xffff) break;
 		job_positions[n] = bj;
 		// side effect: remove items from team_items

@@ -3,7 +3,6 @@
 #include <cmath>
 
 #include "objects.hpp"
-#include "world.hpp"
 #include "messages.hpp"
 
 namespace jup {
@@ -24,9 +23,5 @@ float Pos::distr(Pos p) const {
     float diff_y = (lon - p.lon) * mess_scale_lon;
     return std::abs(diff_x) + std::abs(diff_y);
 }
-
-constexpr char const* Action::action_names[];
-constexpr char const* Action::action_result_names[];
-
 
 } /*end of namespace jup */

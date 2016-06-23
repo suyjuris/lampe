@@ -32,8 +32,6 @@ struct Flat_array {
 	using Type = T;
 	using Offset_t = _Offset_t;
 	using Size_t = _Size_t;
-
-    friend class Flat_array_ref;
 	
 	Offset_t start;
 		
@@ -132,8 +130,6 @@ struct Flat_array {
         return -1;
 	}
 
-
-private:
 	Size_t& m_size() {
 		assert(start);
 		return *(Size_t*)(((char*)this) + start);
@@ -145,7 +141,7 @@ private:
 };
 
 template <typename _Offset_t = u16, typename _Size_t = u8>
-struct Flat_array_ref {
+struct Flat_array_ref_base {
     using Offset_t = _Offset_t;
     using Size_t = _Size_t;
     
@@ -153,11 +149,11 @@ struct Flat_array_ref {
     u8 element_size = 0;
 
     template <typename T>
-    Flat_array_ref(Flat_array<T, Offset_t, Size_t> const& arr, Buffer const& containing):
+    Flat_array_ref_base(Flat_array<T, Offset_t, Size_t> const& arr, Buffer const& containing):
         offset{(char*)&arr - containing.data()}, element_size{sizeof(T)} {}
 
     auto ref(Buffer const& container) const {
-        container.get<Flat_array<char, Offset_t, Size_t>>(offset)
+        container.get<Flat_array<char, Offset_t, Size_t>>(offset);
     }
     
     Offset_t first_byte(Buffer const& container) const {
@@ -167,6 +163,8 @@ struct Flat_array_ref {
         return offset + ref().start;
     }
 };
+
+using Flat_array_ref = Flat_array_ref_base<>;
 
 template <typename _Offset_t = u16, typename _Size_t = u8>
 struct Diff_flat_arrays {
@@ -191,8 +189,8 @@ struct Diff_flat_arrays {
     template <typename Flat_array_t>
     void register_flat_array(Flat_array_t const& arr) {
         refs().push_back(Flat_array_ref {arr}, diffs);
-        std::sort(refs().begin(), refs().end(), [](Flat_array_ref a, Flat_array_ref b) {
-            return a.first_byte() < b.first_byte();
+        std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
+            return a.first_byte(*container) < b.first_byte(*container);
         });
         first = diffs.size();
     }
@@ -203,9 +201,9 @@ struct Diff_flat_arrays {
     }
     void next(int* offset) {
         assert(offset);
-        u8 type = diffs[offset];
+        u8 type = diffs[*offset];
         if (type == ADD) {
-            *offset += 2 + refs()[diffs[offset+1]].element_size;
+            *offset += 2 + refs()[diffs[*offset+1]].element_size;
         } else if (type == REMOVE) {
             *offset += 3;
         } else {
@@ -238,26 +236,26 @@ struct Diff_flat_arrays {
 
     auto refs() { return diffs.get<Flat_array<Flat_array_ref>>(); }
 
-    void apply(Buffer* buffer) {
+    void apply() {
         for (int i = 0; i < refs().size() - 1; ++i) {
-            if (refs()[i].last_byte() > refs()[i+1].last_byte()) {
+            if (refs()[i].last_byte(*container) > refs()[i+1].last_byte(*container)) {
                 assert(false /* Array not monotonic. Call init in the same order as register_flat_array*/);
             }
         }
         if (refs().size()) {
-            assert(refs().back().last_byte() == buffer.size());
+            assert(refs().back().last_byte(*container) == container->size());
         }
         for (int i = first(); i; next(&i)) {
             u8 type = diffs[i];
             u8 ref  = diffs[i+1];
             int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
             for (int j = ref; ref < refs.size(); ++ref) {
-                if (refs[j].first_byte() > refs[ref].last_byte()) break;
+                if (refs[j].first_byte(*container) > refs[ref].last_byte(*container)) break;
                 refs[j].ref().start += adjust;
             }
             std::memmove(refs[ref].ref().end() + adjust,
                          refs[ref].ref().end(),
-                         buffer.end() - (char*)refs[ref].ref().end());
+                         container->end() - (char*)refs[ref].ref().end());
             
             if (type == ADD) {
                 std::memcpy(refs[ref].ref().end(), diffs.data() + i+2, refs()[ref].element_size);
@@ -268,7 +266,7 @@ struct Diff_flat_arrays {
                 assert(false);
             }
         }
-        diffs.clear();
+        diffs.reset();
     }
 };
 
