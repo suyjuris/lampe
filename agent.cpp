@@ -387,7 +387,6 @@ std::ostream& operator<< (std::ostream& os, std::pair<T, T> p) {
     return os << '(' << p.first << ", " << p.second << ')';
 }
 
-
 bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
     auto const& s = perc(agent).self;
     
@@ -803,6 +802,79 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 	}
 }
 
+
+bool Mothership_complex::agent_goto(Situation& sit, u8 where, u8 agent, Buffer* into) {
+    auto const& s = world().agents[agent];
+    auto const& d = sit.agents[agent];
+    
+    if (s.in_facility == where) {
+        return true;
+    } else if (d.last_go == where
+               and s.last_action_result == Action::SUCCESSFUL) {
+        into->emplace_back<Action_Continue>();
+        return false;
+	} else {
+        d.last_go = where;
+        into->emplace_back<Action_Goto1>(where);
+        return false;
+    }
+}
+
+void Mothership_complex::get_agent_action(Situation const& sit, u8 agent, Buffer* into) {
+    auto const& s = world().agents[agent];
+    auto const& d = sit.agents[agent];
+    
+    if (d.task.type == Task::NONE) {
+        into->emplace_back<Action_Abort>();
+        return;
+    } else if (d.task.type == Task::BUY_ITEM) {
+        if (d.task.state == 0) {
+            if (agent_goto(world(), sit, d.task.where, agent, into)) {
+                d.task.state = 1;
+            } else {
+                return;
+            }
+        }
+        if (d.task.state == 1) {
+            if (d.last_action == Action::BUY and not d.last_action_result) {
+                d.task.type = Task::NONE;
+            } else {
+                into->emplace_back<Action_Buy>(req.item);
+                return;
+            }
+        }
+    } else {
+        // TODO
+        assert(false);
+    }
+    
+    into->emplace_back<Action_Abort>();
+    return;
+}
+
+void Mothership_complex::internal_simulation_step(Situation& sit) {
+    // Restock shops
+    for (int i = 0; i < sit.shops.size(); ++i) {
+        for (int j = 0; j < sit.shops[i].size(); ++j) {
+            auto item = sit.shops[i].items[j];
+            --item.restock;
+            if (item.restock == 0) {
+                ++item.amount;
+                item.restock = world().shops[i].items[j].period;
+            }
+        }
+    }
+
+    // TODO Implement storage pricing
+
+    // Execute agent actions
+    for (int i = 0; i < agents_per_team; ++i) {
+        int action_offset = step
+    }
+}
+
+
+
 void Mothership_complex::on_request_action() {
 
 }
@@ -937,27 +1009,5 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 
 	return r;
 }
-
-void internal_simulation_step(World const& world, Situation& sit) {
-    // Restock shops
-    for (int i = 0; i < sit.shops.size(); ++i) {
-        for (int j = 0; j < sit.shops[i].size(); ++j) {
-            auto item = sit.shops[i].items[j];
-            --item.restock;
-            if (item.restock == 0) {
-                ++item.amount;
-                item.restock = world.shops[i].items[j].period;
-            }
-        }
-    }
-
-    // TODO Implement storage pricing
-
-    // Execute agent actions
-    for (int i = 0; i < agents_per_team; ++i) {
-        
-    }
-}
-
 } /* end of namespace jup */
 

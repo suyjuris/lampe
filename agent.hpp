@@ -115,6 +115,17 @@ struct Storage_dynamic {
 	Flat_array<Storage_item> items;
 };
 
+struct Task {
+    enum Type : u8 {
+        NONE, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, DELIVER_ITEM, CHARGE
+    };
+    
+    u8 type;
+    u8 where;
+    Item_stack item;
+    u8 state;
+};
+
 struct Entity_static {
 	u8 name;
 	u8 role;
@@ -135,6 +146,10 @@ struct Agent_dynamic : Entity_dynamic {
 	u8 in_facility;
 	u8 f_position;
 	u8 route_length;
+    
+    Task task;
+    u8 last_go;
+    
 	Flat_array<Item_stack> items;
 	Flat_array<Pos> route;
 };
@@ -175,12 +190,16 @@ struct World {
 };
 
 struct Mothership_complex : Mothership {
-
+    
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
 	void pre_request_action() override;
 	void pre_request_action(u8 agent, Perception const& perc, int perc_size) override;
 	void on_request_action() override;
 	void post_request_action(u8 agent, Buffer* into) override;
+
+    bool agent_goto(Situation const& sit, u8 where, u8 agent, Buffer* into);
+    void get_agent_action(Situation const& sit, u8 agent, Buffer* into);
+    void internal_simulation_step(Situation& sit);
 
 	Buffer general_buffer;
 	Buffer step_buffer;

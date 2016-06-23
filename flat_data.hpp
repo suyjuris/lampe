@@ -1,6 +1,7 @@
 #pragma once
 
-#include <limits>
+#include <algorithm>
+#include <limits>   
 
 #include "buffer.hpp"
 
@@ -31,6 +32,8 @@ struct Flat_array {
 	using Type = T;
 	using Offset_t = _Offset_t;
 	using Size_t = _Size_t;
+
+    friend class Flat_array_ref;
 	
 	Offset_t start;
 		
@@ -116,6 +119,19 @@ struct Flat_array {
 			if (i == obj) ++result;
 		return result;
 	}
+    
+	/**
+	 * Returns the smallest index containing an equal object or -1 of no such
+	 * object exists.
+	 */
+	int index(T const& obj) const {
+		int result = 0;
+        for (int i = 0; i < size(); ++i) {
+            if ((*this)[i] == obj) return i;
+        }
+        return -1;
+	}
+
 
 private:
 	Size_t& m_size() {
@@ -126,6 +142,134 @@ private:
 		assert(start);
 		return *(Size_t const*)(((char*)this) + start);
 	}
+};
+
+template <typename _Offset_t = u16, typename _Size_t = u8>
+struct Flat_array_ref {
+    using Offset_t = _Offset_t;
+    using Size_t = _Size_t;
+    
+    Offset_t offset = 0;
+    u8 element_size = 0;
+
+    template <typename T>
+    Flat_array_ref(Flat_array<T, Offset_t, Size_t> const& arr, Buffer const& containing):
+        offset{(char*)&arr - containing.data()}, element_size{sizeof(T)} {}
+
+    auto ref(Buffer const& container) const {
+        container.get<Flat_array<char, Offset_t, Size_t>>(offset)
+    }
+    
+    Offset_t first_byte(Buffer const& container) const {
+        return offset;
+    }
+    Offset_t last_byte(Buffer const& container) const {
+        return offset + ref().start;
+    }
+};
+
+template <typename _Offset_t = u16, typename _Size_t = u8>
+struct Diff_flat_arrays {
+    struct Single_diff {
+        u8 type;
+        u8 arr;
+        u8 size_index;
+    };
+    enum Type : u8 {
+        ADD, REMOVE
+    };
+
+    Buffer* container;
+    Buffer diffs;
+    int _first;
+
+    Diff_flat_arrays(Buffer* container): container{container} {
+        assert(container);
+        refs().init(diffs);
+    }
+
+    template <typename Flat_array_t>
+    void register_flat_array(Flat_array_t const& arr) {
+        refs().push_back(Flat_array_ref {arr}, diffs);
+        std::sort(refs().begin(), refs().end(), [](Flat_array_ref a, Flat_array_ref b) {
+            return a.first_byte() < b.first_byte();
+        });
+        first = diffs.size();
+    }
+
+    int first() {
+        assert(_first > 0);
+        return _first;
+    }
+    void next(int* offset) {
+        assert(offset);
+        u8 type = diffs[offset];
+        if (type == ADD) {
+            *offset += 2 + refs()[diffs[offset+1]].element_size;
+        } else if (type == REMOVE) {
+            *offset += 3;
+        } else {
+            assert(false);
+        }
+        if (*offset >= diffs.size()) {
+            assert(*offset == diffs.size());
+            *offset = 0;
+        }
+    }
+
+    template <typename Flat_array_t>
+    void add(Flat_array_t const& arr, typename Flat_array_t::type const& i) {
+        int index = refs().index(Flat_array_ref {arr});
+        assert(index >= 0 /* array was not registered */);
+        diffs.emplace_back<u8>(ADD);
+        diffs.emplace_back<u8>((u8) index);
+        assert(sizeof(i) == refs()[index].element_size);
+        diffs.emplace_back(i);
+    }
+    
+    template <typename Flat_array_t>
+    void remove(Flat_array_t const& arr, int i) {
+        int index = refs().index(Flat_array_ref {arr});
+        assert(index >= 0 /* array was not registered */);
+        diffs.emplace_back<u8>(REMOVE);
+        diffs.emplace_back<u8>((u8) index);
+        diffs.emplace_back<u8>((u8) i);
+    }
+
+    auto refs() { return diffs.get<Flat_array<Flat_array_ref>>(); }
+
+    void apply(Buffer* buffer) {
+        for (int i = 0; i < refs().size() - 1; ++i) {
+            if (refs()[i].last_byte() > refs()[i+1].last_byte()) {
+                assert(false /* Array not monotonic. Call init in the same order as register_flat_array*/);
+            }
+        }
+        if (refs().size()) {
+            assert(refs().back().last_byte() == buffer.size());
+        }
+        for (int i = first(); i; next(&i)) {
+            u8 type = diffs[i];
+            u8 ref  = diffs[i+1];
+            int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
+            for (int j = ref; ref < refs.size(); ++ref) {
+                if (refs[j].first_byte() > refs[ref].last_byte()) break;
+                refs[j].ref().start += adjust;
+            }
+            std::memmove(refs[ref].ref().end() + adjust,
+                         refs[ref].ref().end(),
+                         buffer.end() - (char*)refs[ref].ref().end());
+            
+            if (type == ADD) {
+                std::memcpy(refs[ref].ref().end(), diffs.data() + i+2, refs()[ref].element_size);
+                refs[ref].ref().m_size() += 1;
+            } else if (type == REMOVE) {
+                refs[ref].ref().m_size() -= 1;
+            } else {
+                assert(false);
+            }
+        }
+        diffs.clear();
+    }
 };
 
 /**
