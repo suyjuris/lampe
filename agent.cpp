@@ -9,6 +9,8 @@
 #include "buffer.hpp"
 #include "messages.hpp"
 
+#include "debug.hpp"
+
 namespace jup {
 
 
@@ -879,7 +881,6 @@ void Mothership_complex::internal_simulation_step(Situation& sit) {
                 continue;
             }
             d.charge = std::max(d.charge - 100, 0);
-            
         }
     }
 }
@@ -887,7 +888,6 @@ void Mothership_complex::internal_simulation_step(Situation& sit) {
 
 
 void Mothership_complex::on_request_action() {
-
 }
 
 void Mothership_complex::post_request_action(u8 agent, Buffer* into) {

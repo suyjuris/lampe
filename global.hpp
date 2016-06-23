@@ -12,12 +12,6 @@
 #include <ostream>
 
 namespace jup {
-
-// Use these facilities for general output. They may redirect into a logfile later on.
-extern std::ostream& jout;
-extern std::ostream& jerr;
-using std::endl;
-
 // Standard integer types
 using s64 = std::int64_t;
 using u64 = std::uint64_t;
@@ -37,6 +31,13 @@ inline void narrow(T& into, R from) {
 	into = static_cast<T>(from);
 	assert(static_cast<R>(into) == from and (into > 0) == (from > 0));
 }
+
+
+// Use these facilities for general output. They may redirect into a logfile later on.
+extern std::ostream& jout;
+extern std::ostream& jerr;
+using std::endl;
+
 
 /**
  * While the program is being shut down, this is set to 1. Inhibits the printing
