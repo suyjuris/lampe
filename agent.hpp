@@ -167,6 +167,8 @@ struct Situation {
 	Flat_array<Storage_dynamic> storages;
 	Flat_array<Job_auction> auction_jobs;
 	Flat_array<Job_priced> priced_jobs;
+
+    Flat_array<Task> goals;
 };
 
 struct World {
@@ -189,8 +191,14 @@ struct World {
 
 };
 
-struct Mothership_complex : Mothership {
-    
+struct Tree {
+    u32 situation;
+    u32 parent;
+    u32 rating;
+    Flat_array<u32> children;
+};
+
+struct Mothership_complex : Mothership {    
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
 	void pre_request_action() override;
 	void pre_request_action(u8 agent, Perception const& perc, int perc_size) override;
@@ -200,21 +208,35 @@ struct Mothership_complex : Mothership {
     bool agent_goto(Situation& sit, u8 where, u8 agent, Buffer* into);
     void get_agent_action(Situation& sit, u8 agent, Buffer* into);
     void internal_simulation_step(Situation& sit);
+    Flat_array<Flat_array<Task>>& possibilities(Task task, Buffer* into);
+
+    u8 can_agent_do(Situation const& sit, u8 agent, Task task);
+    Task find_task(Situation const& sit, u8 agent);
+
+    u32 rate_situation(Situation const& s);
+
+    void select_diff_situation(Situation const& s);
 
 	Buffer general_buffer;
 	Buffer step_buffer;
-	Buffer last_step_buffer;
-
+	Buffer last_situation_buffer;
+    Buffer situation_buffer;
+    Diff_flat_arrays diff {situation_buffer};
+    int current_situation = -1;
+    
 	auto& world() { return general_buffer.get<World>(0); }
-	auto& situation() { return step_buffer.get<Situation>(0); }
-	auto& last_situation() { return last_step_buffer.get<Situation>(0); }
+    auto& tree(u32 offset = 0) { return step_buffer.get<Tree>(offset); }
+
+    auto& situation(Tree const& tree) { return situation(tree.situation); }
+	auto& situation(u32 offset = 0) { return situation_buffer.get<Situation>(offset); }
+	auto& last_situation() { return last_situation_buffer.get<Situation>(0); }
+    
 
 	template <typename T>
 	T* get_by_id(u8 id) {
 		return nullptr;
 	}
 
-	u32 rate_situation(Situation const& s);
 };
 
 #define gbi(T, m)\

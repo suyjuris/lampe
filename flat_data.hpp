@@ -138,6 +138,10 @@ struct Flat_array {
 		assert(start);
 		return *(Size_t const*)(((char*)this) + start);
 	}
+
+    operator bool() const {
+        return start;
+    }
 };
 
 template <typename _Offset_t = u16, typename _Size_t = u8>
@@ -150,9 +154,13 @@ struct Flat_array_ref_base {
 
     template <typename T>
     Flat_array_ref_base(Flat_array<T, Offset_t, Size_t> const& arr, Buffer const& containing):
-        offset{(char*)&arr - containing.data()}, element_size{sizeof(T)} {}
+        offset{(char*)&arr - containing.data()}, element_size{sizeof(T)}
+    {
+        assert(containing.begin() <= (char)&arr and (char)&arr < containing.end());
+    }
 
     auto ref(Buffer const& container) const {
+        assert(offset < container.size());
         container.get<Flat_array<char, Offset_t, Size_t>>(offset);
     }
     
@@ -160,14 +168,14 @@ struct Flat_array_ref_base {
         return offset;
     }
     Offset_t last_byte(Buffer const& container) const {
-        return offset + ref().start;
+        return offset + ref(container).start;
     }
 };
 
 using Flat_array_ref = Flat_array_ref_base<>;
 
 template <typename _Offset_t = u16, typename _Size_t = u8>
-struct Diff_flat_arrays {
+struct Diff_flat_arrays_base {
     struct Single_diff {
         u8 type;
         u8 arr;
@@ -181,13 +189,13 @@ struct Diff_flat_arrays {
     Buffer diffs;
     int _first;
 
-    Diff_flat_arrays(Buffer* container): container{container} {
+    Diff_flat_arrays_base(Buffer* container): container{container} {
         assert(container);
         refs().init(diffs);
     }
 
     template <typename Flat_array_t>
-    void register_flat_array(Flat_array_t const& arr) {
+    void register_arr(Flat_array_t const& arr) {
         refs().push_back(Flat_array_ref {arr}, diffs);
         std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
             return a.first_byte(*container) < b.first_byte(*container);
@@ -239,7 +247,8 @@ struct Diff_flat_arrays {
     void apply() {
         for (int i = 0; i < refs().size() - 1; ++i) {
             if (refs()[i].last_byte(*container) > refs()[i+1].last_byte(*container)) {
-                assert(false /* Array not monotonic. Call init in the same order as register_flat_array*/);
+                // Call init in the same order as the Flat_arrays appear in memory
+                assert(false /* Array not monotonic.*/);
             }
         }
         if (refs().size()) {
@@ -249,9 +258,12 @@ struct Diff_flat_arrays {
             u8 type = diffs[i];
             u8 ref  = diffs[i+1];
             int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
-            for (int j = ref; ref < refs.size(); ++ref) {
-                if (refs[j].first_byte(*container) > refs[ref].last_byte(*container)) break;
-                refs[j].ref().start += adjust;
+            for (int j = 0; j < refs.size(); ++j) {
+                if (j == ref) continue;
+                if (refs[j].first_byte(*container) < refs[ref].last_byte(*container)
+                    and refs[j].last_byte(*container) > refs[ref].last_byte(*container)) {
+                    refs[j].ref().start += adjust;
+                }
             }
             std::memmove(refs[ref].ref().end() + adjust,
                          refs[ref].ref().end(),
@@ -266,9 +278,16 @@ struct Diff_flat_arrays {
                 assert(false);
             }
         }
+        diffs.resize(_first);
+    }
+
+    void reset() {
         diffs.reset();
+        _first = 0;
     }
 };
+
+using Diff_flat_arrays = Diff_flat_arrays_base<>;
 
 /**
  * This is a 'flat' data structure, meaning that it goes into a Buffer together
