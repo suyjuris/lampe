@@ -56,7 +56,7 @@ struct Flat_array {
 		assert((void*)containing->begin() <= (void*)this
 			and (void*)this < (void*)containing->end());
 		narrow(start, containing->end() - (char*)this);
-		containing->append(orig.begin(), sizeof(Size_t) + size * sizeof(T));
+		containing->append((char*)orig.begin() - sizeof(Size_t), sizeof(Size_t) + size * sizeof(T));
 	}
 
 	Size_t size() const {

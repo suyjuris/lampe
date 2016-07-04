@@ -3,6 +3,7 @@
 #include "Buffer.hpp"
 #include "objects.hpp"
 #include "agent.hpp"
+#include "messages.hpp"
 
 namespace jup {
 
@@ -51,6 +52,22 @@ struct Debug_ostream {
 
 };
 
+struct Debug_tabulator {
+	u8 n;
+	Debug_tabulator() {
+		n = 0;
+	}
+};
+
+extern Debug_tabulator tab;
+
+inline Debug_ostream& operator< (Debug_ostream& out, Debug_tabulator const& tab) {
+	for (u8 i = 0; i < tab.n; i++) {
+		out.out << "    ";
+	}
+	return out;
+}
+
 inline void operator, (Debug_ostream& out, u8 n) {
 	do {
 		out.out << std::endl;
@@ -63,7 +80,7 @@ inline Debug_ostream& operator< (Debug_ostream& out, Flat_array<T> const& fa) {
 }
 template <typename T>
 Debug_ostream& operator< (Debug_ostream& out, T const arr[]) {
-	return out < "[array]";
+	return out < "[array] ";
 }
 template <typename T>
 Debug_ostream& operator< (Debug_ostream& out, T const& obj) {
@@ -81,10 +98,11 @@ inline Debug_ostream& operator< (Debug_ostream& out, float f) {
 inline Debug_ostream& operator< (Debug_ostream& out, u8 n) {
     return out < (int)n;
 }
+
 // type must have between 1 and 15 elements
-#define display_var(var) < ", " < #var < " = " < obj.var
-#define display_obj(type, ...) out < "{ (" < #type < ") "\
-	__forall(display_var, __VA_ARGS__) < " }"
+#define display_var(var) < " " < #var < " = " < "\b,"
+#define display_obj(type, ...) out < "(" < #type < ") {"\
+	__forall(display_var, __VA_ARGS__) < "\b } "
 #define op(type, ...) inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) {\
 	return display_obj(type, __VA_ARGS__);\
 }
@@ -92,7 +110,8 @@ inline Debug_ostream& operator< (Debug_ostream& out, u8 n) {
 op(Item_stack, item, amount)
 op(Pos, lat, lon)
 op(Product, name, assembled, volume, consumed, tools)
-op(Role, name, speed, max_battery, max_load, tools)
+//op(Role, name, speed, max_battery, max_load, tools)
+op(Role, name, speed, max_battery, max_load)
 op(Action, type, get_name(obj.type))
 op(Simulation, id, team, seed_capital, steps, role, products)
 op(Self, charge, load, last_action, last_action_result, pos, in_facility,
@@ -132,8 +151,6 @@ op(Agent_dynamic, pos, charge, load, last_action, last_action_result,
 	in_facility, f_position, route_length, task, last_go, items, route)
 op(Situation, deadline, simulation_step, team, agents, opponents,
 	charging_stations, shops, storages, auction_jobs, priced_jobs)
-
-
 op(World, simulation_id, team_id, opponent_team, seed_capital,
 	max_steps, agents, opponents, roles, products, charging_stations,
 	dump_locations, shops, storages, workshops)
@@ -146,13 +163,16 @@ op(World, simulation_id, team_id, opponent_team, seed_capital,
 
 template <typename Range>
 Debug_ostream& operator<= (Debug_ostream& out, Range const& r) {
-    out < "[ ";
-	u16 c = 0;
+	out < "{";
+	if (r.begin() == r.end()) {
+		return  out < "} ";
+	}
+	tab.n++;
     for (auto i = r.begin(); i != r.end(); ++i) {
-        out < *i < ", ";
-		c++;
+        out < "\n" < tab < *i < "\b,";
     }
-    return out < " (size = " < c < ") ]";
+	tab.n--;
+    return out < "\b \n" < tab < "} ";
 }
 
 

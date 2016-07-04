@@ -651,6 +651,11 @@ void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, in
 		world().seed_capital = simulation.seed_capital;
 		world().max_steps = simulation.steps;
 		world().products.init(simulation.products, &general_buffer);
+		u8 i = 0;
+		for (Product const& p : simulation.products) {
+			world().products[i].consumed.init(p.consumed, &general_buffer);
+			world().products[i++].tools.init(p.tools, &general_buffer);
+		}
 		world().roles.init(&general_buffer);
 	}
 	u8 rname = simulation.role.name;
@@ -668,7 +673,12 @@ void Mothership_complex::pre_request_action() {
 
 void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
 	if (agent == 0) {
+		// prevent reference invalidation in this next segment (TODO: exact size calculation)
+		step_buffer.reserve(0x8000);
+		step_buffer.trap_alloc(true);
 		if (perc.simulation_step == 0) {
+			general_buffer.reserve(0x2000);
+			general_buffer.trap_alloc(true);
 			u8 i = 0;
 			for (Entity const& e : perc.entities) {
 				if (e.team != world().team_id) {
@@ -711,13 +721,14 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 				s.totalCapacity = f.totalCapacity;
 			}
 			world().workshops.init(perc.workshops, &general_buffer);
+			general_buffer.trap_alloc(true);
 		}
 		situation().deadline = perc.deadline;
 		situation().simulation_step = perc.simulation_step;
 		situation().team.money = perc.team.money;
 		situation().team.jobs_taken.init(perc.team.jobs_taken, &step_buffer);
 		situation().team.jobs_posted.init(perc.team.jobs_posted, &step_buffer);
-		u8 i = 0;
+		u16 i = 0;
 		for (Entity const& e : perc.entities) {
 			situation().opponents[i++].pos = e.pos;
 		}
@@ -801,6 +812,10 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 			j++;
 		}
 		i++;
+	}
+	step_buffer.trap_alloc(false);
+	if (perc.simulation_step == 0 && agent == 0) {
+		jdbg < world(), 0;
 	}
 }
 
