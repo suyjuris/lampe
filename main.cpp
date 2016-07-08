@@ -95,7 +95,7 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
                 return false;
             }
 
-            if (name.end()[-1] == '%') {
+            if (name.end()[-1] == '%' or name.end()[-1] == ',') {
                 for (int i = 1; i <= 16; ++i) {
                     constexpr int space = 8;
                     int name_off = into->_string_storage.size();
@@ -229,7 +229,7 @@ int main(int argc, c_str const* argv) {
         init_messages();
     }
 	Socket_context socket_context;
-    Mothership_complex mothership;
+    Mothership_simple mothership;
 
     server->register_mothership(&mothership);
     server->run_simulation();

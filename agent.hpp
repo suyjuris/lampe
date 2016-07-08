@@ -10,7 +10,7 @@
 
 namespace jup {
 
-constexpr char const unsigned agents_per_team = 16;
+constexpr u8 agents_per_team = 16;
 
 struct Requirement {
     enum Type : u8 {
@@ -29,14 +29,18 @@ struct Requirement {
 
 struct Job_execution {
     u16 job;
-    u32 cost = 0;
-    Flat_array<Requirement> needed;
+    float cost = 0;
+    Flat_array<Requirement, u16, u16> needed;
 };
 
 struct Cheap_item {
     u32 price;
     u8 item;
     u8 shop;
+
+    bool operator<(Cheap_item const& other) const {
+        return price < other.price;
+    }
 };
 
 struct Mothership_simple: Mothership {
@@ -60,6 +64,7 @@ struct Mothership_simple: Mothership {
     u8 agent_cs[agents_per_team];
     u8 agent_last_go[agents_per_team];
     int agent_count = 0;
+    u8 workshop = 0xff;
 
     std::vector<Cheap_item> cheaps;
     int shop_visited_index = 0;
@@ -73,6 +78,10 @@ struct Mothership_simple: Mothership {
             if (cheaps[i].item == id) return i;
         }
         return -1;
+    }
+
+    float dist_cost(Pos p1, u8 agent) {
+        return p1.distr(perc(agent).self.pos) / sim(agent).role.speed * 4.5;
     }
 };
 
@@ -117,9 +126,11 @@ struct Storage_dynamic {
 
 struct Task {
     enum Type : u8 {
-        NONE, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, DELIVER_ITEM, CHARGE
+        NONE, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, DELIVER_ITEM, CHARGE, VISIT
     };
     
+    // A Task is invalid iff item.amount == 0
+    // I'm sorry about that.
     u8 type;
     u8 where;
     Item_stack item;
@@ -147,8 +158,8 @@ struct Agent_dynamic : Entity_dynamic {
 	u8 f_position;
 	u8 route_length;
     
-    Task task;
-    u8 last_go;
+    Task task = {};
+    u8 last_go = 0;
     
 	Flat_array<Item_stack> items;
 	Flat_array<Pos> route;
@@ -158,7 +169,10 @@ struct Situation {
 	u64 deadline;
 	u16 simulation_step;
 	Team team;
-
+    
+    u16 current_job = 0;
+    u8 crafting_fence = 0;
+    
 	Agent_dynamic agents[agents_per_team];
 	Entity_dynamic opponents[agents_per_team];
 
@@ -169,6 +183,7 @@ struct Situation {
 	Flat_array<Job_priced> priced_jobs;
 
     Flat_array<Task> goals;
+    
 };
 
 struct World {
@@ -194,8 +209,8 @@ struct World {
 struct Tree {
     u32 situation;
     u32 parent;
-    u32 rating;
-    Flat_array<u32> children;
+    float rating;
+    Flat_array<Tree> children;
 };
 
 struct Mothership_complex : Mothership {    
@@ -207,11 +222,18 @@ struct Mothership_complex : Mothership {
 
     bool agent_goto(Situation& sit, u8 where, u8 agent, Buffer* into);
     void get_agent_action(Situation& sit, u8 agent, Buffer* into);
-    void internal_simulation_step(Situation& sit);
-    Flat_array<Flat_array<Task>>& possibilities(Task task, Buffer* into);
+    void internal_simulation_step(u32 treeid);
 
     u8 can_agent_do(Situation const& sit, u8 agent, Task task);
-    Task find_task(Situation const& sit, u8 agent);
+    float task_heuristic(Situation const& sit, u8 agent, Task& task);
+    bool refuel_if_needed(Situation& sit, u8 agent, u8 where);
+    void heuristic_task_assign(Situation& sit);
+    void add_req_tasks(Situation& sit, Task task);
+    void add_req_tasks(Situation& sit, Item_stack is);
+    
+    void branch_tasks(u32 treeid, u8 agent, u8 depth);
+    void branch_goals(u32 treeid, u8 depth);
+    void fast_forward(u32 treeid, u8 depth);
 
     u32 rate_situation(Situation const& s);
 
@@ -221,16 +243,23 @@ struct Mothership_complex : Mothership {
 	Buffer step_buffer;
 	Buffer last_situation_buffer;
     Buffer situation_buffer;
-    Diff_flat_arrays diff {situation_buffer};
+    Diff_flat_arrays diff {&situation_buffer};
     int current_situation = -1;
     
 	auto& world() { return general_buffer.get<World>(0); }
     auto& tree(u32 offset = 0) { return step_buffer.get<Tree>(offset); }
 
-    auto& situation(Tree const& tree) { return situation(tree.situation); }
 	auto& situation(u32 offset = 0) { return situation_buffer.get<Situation>(offset); }
+    auto& situation(Tree const& tree) { return situation(tree.situation); }
 	auto& last_situation() { return last_situation_buffer.get<Situation>(0); }
-    
+
+    float dist(Pos p1, Pos p2) {
+        return p1.distr(p2);
+    }
+    float dist_cost(Pos p1, u8 agent, Situation const& sit) {
+        Role const& role = world().roles[world().agents[agent].role];
+        return dist(p1, sit.agents[agent].pos) / role.speed * 4.5;
+    }
 
 	template <typename T>
 	T* get_by_id(u8 id) {
@@ -258,6 +287,16 @@ gbi(Shop_static, world().shops)
 gbi(Workshop, world().workshops)
 
 #undef gbi
+
+template <>
+inline Facility* Mothership_complex::get_by_id<Facility>(u8 id) {
+    Facility * fac;
+    fac = get_by_id<Charging_station_static>(id); if (fac) return fac;
+    fac = get_by_id<Dump_location>(id);           if (fac) return fac;
+    fac = get_by_id<Shop_static>(id);             if (fac) return fac;
+    fac = get_by_id<Workshop>(id);                if (fac) return fac;
+	return nullptr;
+}
 
 void internal_simulation_step(World const& world, Situation& sit);
 

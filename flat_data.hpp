@@ -51,12 +51,11 @@ struct Flat_array {
 	}
 
 	void init(Flat_array<Type, Offset_t, Size_t> const& orig, Buffer* containing) {
-		Size_t size = orig.m_size();
 		assert(containing);
 		assert((void*)containing->begin() <= (void*)this
 			and (void*)this < (void*)containing->end());
 		narrow(start, containing->end() - (char*)this);
-		containing->append((char*)orig.begin() - sizeof(Size_t), sizeof(Size_t) + size * sizeof(T));
+		containing->append((char const*)&orig.m_size(), sizeof(Size_t) + orig.size() * sizeof(T));
 	}
 
 	Size_t size() const {
@@ -123,7 +122,6 @@ struct Flat_array {
 	 * object exists.
 	 */
 	int index(T const& obj) const {
-		int result = 0;
         for (int i = 0; i < size(); ++i) {
             if ((*this)[i] == obj) return i;
         }
@@ -154,21 +152,27 @@ struct Flat_array_ref_base {
 
     template <typename T>
     Flat_array_ref_base(Flat_array<T, Offset_t, Size_t> const& arr, Buffer const& containing):
-        offset{(char*)&arr - containing.data()}, element_size{sizeof(T)}
+        element_size{sizeof(T)}
     {
-        assert(containing.begin() <= (char)&arr and (char)&arr < containing.end());
+        narrow(offset, (char*)&arr - containing.data()); 
+        assert(containing.begin() <= (char*)&arr and (char*)&arr < containing.end());
     }
 
-    auto ref(Buffer const& container) const {
+    auto& ref(Buffer& container) const {
         assert(offset < container.size());
-        container.get<Flat_array<char, Offset_t, Size_t>>(offset);
+        return container.get<Flat_array<char, Offset_t, Size_t>>(offset);
     }
     
-    Offset_t first_byte(Buffer const& container) const {
+    Offset_t first_byte(Buffer& container) const {
         return offset;
     }
-    Offset_t last_byte(Buffer const& container) const {
-        return offset + ref(container).start;
+    Offset_t last_byte(Buffer& container) const {
+        return offset + ref(container).start + sizeof(Size_t)
+            + ref(container).size() * element_size;
+    }
+
+    bool operator== (Flat_array_ref_base<_Offset_t, _Size_t> const& other) const {
+        return offset == other.offset and element_size == other.element_size;
     }
 };
 
@@ -191,16 +195,17 @@ struct Diff_flat_arrays_base {
 
     Diff_flat_arrays_base(Buffer* container): container{container} {
         assert(container);
-        refs().init(diffs);
+        diffs.emplace_back<Flat_array<Flat_array_ref>>(&diffs);
     }
 
     template <typename Flat_array_t>
     void register_arr(Flat_array_t const& arr) {
-        refs().push_back(Flat_array_ref {arr}, diffs);
+        refs().push_back(Flat_array_ref {arr, *container}, &diffs);
+        jerr << refs().back().first_byte(*container) << ' ' << refs().back().last_byte(*container) << '\n';
         std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
             return a.first_byte(*container) < b.first_byte(*container);
         });
-        first = diffs.size();
+        _first = diffs.size();
     }
 
     int first() {
@@ -224,25 +229,25 @@ struct Diff_flat_arrays_base {
     }
 
     template <typename Flat_array_t>
-    void add(Flat_array_t const& arr, typename Flat_array_t::type const& i) {
-        int index = refs().index(Flat_array_ref {arr});
+    void add(Flat_array_t const& arr, typename Flat_array_t::Type const& i) {
+        int index = refs().index(Flat_array_ref {arr, *container});
         assert(index >= 0 /* array was not registered */);
         diffs.emplace_back<u8>(ADD);
         diffs.emplace_back<u8>((u8) index);
         assert(sizeof(i) == refs()[index].element_size);
-        diffs.emplace_back(i);
+        diffs.emplace_back<typename Flat_array_t::Type>(i);
     }
     
     template <typename Flat_array_t>
     void remove(Flat_array_t const& arr, int i) {
-        int index = refs().index(Flat_array_ref {arr});
+        int index = refs().index(Flat_array_ref {arr, *container});
         assert(index >= 0 /* array was not registered */);
         diffs.emplace_back<u8>(REMOVE);
         diffs.emplace_back<u8>((u8) index);
         diffs.emplace_back<u8>((u8) i);
     }
 
-    auto refs() { return diffs.get<Flat_array<Flat_array_ref>>(); }
+    Flat_array<Flat_array_ref>& refs() { return diffs.get<Flat_array<Flat_array_ref>>(); }
 
     void apply() {
         for (int i = 0; i < refs().size() - 1; ++i) {
@@ -258,22 +263,23 @@ struct Diff_flat_arrays_base {
             u8 type = diffs[i];
             u8 ref  = diffs[i+1];
             int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
-            for (int j = 0; j < refs.size(); ++j) {
+            for (int j = 0; j < refs().size(); ++j) {
                 if (j == ref) continue;
-                if (refs[j].first_byte(*container) < refs[ref].last_byte(*container)
-                    and refs[j].last_byte(*container) > refs[ref].last_byte(*container)) {
-                    refs[j].ref().start += adjust;
+                if (refs()[j].first_byte(*container) < refs()[ref].last_byte(*container)
+                    and refs()[j].last_byte(*container) > refs()[ref].last_byte(*container)) {
+                    refs()[j].ref(*container).start += adjust;
                 }
             }
-            std::memmove(refs[ref].ref().end() + adjust,
-                         refs[ref].ref().end(),
-                         container->end() - (char*)refs[ref].ref().end());
+            std::memmove(refs()[ref].ref(*container).end() + adjust,
+                         refs()[ref].ref(*container).end(),
+                         container->end() - (char*)refs()[ref].ref(*container).end());
             
             if (type == ADD) {
-                std::memcpy(refs[ref].ref().end(), diffs.data() + i+2, refs()[ref].element_size);
-                refs[ref].ref().m_size() += 1;
+                std::memcpy(refs()[ref].ref(*container).end(),
+                            diffs.data() + i+2, refs()[ref].element_size);
+                refs()[ref].ref(*container).m_size() += 1;
             } else if (type == REMOVE) {
-                refs[ref].ref().m_size() -= 1;
+                refs()[ref].ref(*container).m_size() -= 1;
             } else {
                 assert(false);
             }
@@ -283,7 +289,8 @@ struct Diff_flat_arrays_base {
 
     void reset() {
         diffs.reset();
-        _first = 0;
+        diffs.emplace_back<Flat_array<Flat_array_ref>>(&diffs);
+        _first = 0;                                            
     }
 };
 

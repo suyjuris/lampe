@@ -516,6 +516,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		Workshop fac;
 		fac.name = get_id(xml_fac.attribute("name").value());
 		fac.pos = get_pos(xml_fac);
+        narrow(fac.price, xml_fac.attribute("price").as_int());
 		perc.workshops.push_back(fac, into);
 	}
 

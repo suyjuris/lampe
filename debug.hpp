@@ -74,13 +74,13 @@ inline void operator, (Debug_ostream& out, u8 n) {
 	} while (n --> 0);
 }
 
-template <typename T>
-inline Debug_ostream& operator< (Debug_ostream& out, Flat_array<T> const& fa) {
+template <typename T, typename T2, typename T3>
+inline Debug_ostream& operator< (Debug_ostream& out, Flat_array<T, T2, T3> const& fa) {
 	return out <= fa;
 }
-template <typename T>
-Debug_ostream& operator< (Debug_ostream& out, T const arr[]) {
-	return out < "[array] ";
+template <typename T, size_t n>
+Debug_ostream& operator< (Debug_ostream& out, T const (&arr)[n]) {
+	return out <= arr;
 }
 template <typename T>
 Debug_ostream& operator< (Debug_ostream& out, T const& obj) {
@@ -90,7 +90,7 @@ inline Debug_ostream& operator< (Debug_ostream& out, char const* s) {
 	return out.printf(s);
 }
 inline Debug_ostream& operator< (Debug_ostream& out, double d) {
-	return out.printf(".2le ", d);
+	return out.printf("%.2elf ", d);
 }
 inline Debug_ostream& operator< (Debug_ostream& out, float f) {
     return out < (double)f;
@@ -99,43 +99,62 @@ inline Debug_ostream& operator< (Debug_ostream& out, u8 n) {
     return out < (int)n;
 }
 
-// type must have between 1 and 15 elements
-#define display_var(var) < " " < #var < " = " < "\b,"
-#define display_obj(type, ...) out < "(" < #type < ") {"\
-	__forall(display_var, __VA_ARGS__) < "\b } "
-#define op(type, ...) inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) {\
-	return display_obj(type, __VA_ARGS__);\
-}
+extern Debug_ostream jdbg;
 
-op(Item_stack, item, amount)
+// type must have between 1 and 15 elements
+#define display_var(var) < " " < #var < " = " < obj.var< "\b,"
+#define display_obj(type, ...)                                          \
+    out < "(" < #type < ") {" __forall(display_var, __VA_ARGS__) < "\b } "
+#define display_obJ(type, id, ...)                                       \
+    out < "(" < #type < ") {" < #id < " = " < (obj.id ?                  \
+    get_string_from_id(obj.id).c_str() : "") \
+     < "," __forall(display_var, __VA_ARGS__) < "\b } "
+#define print_for_gdb(type) \
+    inline void print(type const& obj) __attribute__ ((used));  \
+    inline void print(type const& obj) {                        \
+        jup::jdbg < obj, 0;                                     \
+    }
+#define op(type, ...) \
+    inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) { \
+	    return display_obj(type, __VA_ARGS__);                              \
+    }                                                                       \
+    print_for_gdb(type)
+
+#define oP(type, id, ...)                                                   \
+    inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) { \
+        return display_obJ(type, id, __VA_ARGS__);                          \
+    }                                                                       \
+    print_for_gdb(type)
+
+oP(Item_stack, item, amount)
 op(Pos, lat, lon)
-op(Product, name, assembled, volume, consumed, tools)
+oP(Product, name, assembled, volume, consumed, tools)
 //op(Role, name, speed, max_battery, max_load, tools)
-op(Role, name, speed, max_battery, max_load)
+oP(Role, name, speed, max_battery, max_load)
 op(Action, type, get_name(obj.type))
 op(Simulation, id, team, seed_capital, steps, role, products)
 op(Self, charge, load, last_action, last_action_result, pos, in_facility,
 	f_position, route_length, items, route)
 op(Team, money, jobs_taken, jobs_posted)
-op(Entity, name, team, pos, role)
-op(Facility, name, pos)
-op(Charging_station, name, pos, rate, price, slots, q_size)
-op(Dump_location, name, pos, price)
+oP(Entity, name, team, pos, role)
+oP(Facility, name, pos)
+oP(Charging_station, name, pos, rate, price, slots, q_size)
+oP(Dump_location, name, pos, price)
 op(Shop_item, item, amount, cost, restock)
-op(Shop, name, pos, items)
+oP(Shop, name, pos, items)
 op(Storage_item, item, amount, delivered)
-op(Storage, name, pos, price, totalCapacity, usedCapacity)
-op(Workshop, name, pos, price)
+oP(Storage, name, pos, price, totalCapacity, usedCapacity)
+oP(Workshop, name, pos, price)
 op(Job_item, item, amount, delivered)
-op(Job, id, storage, begin, end, items)
-op(Job_auction, id, storage, begin, end, items, fine, max_bid)
-op(Job_priced, id, storage, begin, end, items, reward)
+oP(Job, id, storage, begin, end, items)
+oP(Job_auction, id, storage, begin, end, items, fine, max_bid)
+oP(Job_priced, id, storage, begin, end, items, reward)
 op(Perception, deadline, id, simulation_step, self, team, entities,
 	charging_stations, shops, storages, workshops, auction_jobs, priced_jobs)
 op(Requirement, type, dependency, item, where, is_tool, state, id)
-op(Job_execution, job, cost, needed)
-op(Cheap_item, price, item, shop)
-op(Charging_station_static, name, pos, rate, price, slots)
+oP(Job_execution, job, cost, needed)
+oP(Cheap_item, item, price, shop)
+oP(Charging_station_static, name, pos, rate, price, slots)
 op(Charging_station_dynamic, q_size)
 op(Shop_item_static, item, cost, period)
 op(Shop_item_dynamic, amount, restock)
@@ -144,9 +163,9 @@ op(Shop_dynamic, items)
 op(Storage_static, name, pos, price, totalCapacity)
 op(Storage_dynamic, usedCapacity, items)
 op(Task, type, where, item, state)
-op(Entity_static, name, role)
+oP(Entity_static, name, role)
 op(Entity_dynamic, pos)
-op(Agent_static, name, role)
+oP(Agent_static, name, role)
 op(Agent_dynamic, pos, charge, load, last_action, last_action_result,
 	in_facility, f_position, route_length, task, last_go, items, route)
 op(Situation, deadline, simulation_step, team, agents, opponents,
@@ -164,18 +183,16 @@ op(World, simulation_id, team_id, opponent_team, seed_capital,
 template <typename Range>
 Debug_ostream& operator<= (Debug_ostream& out, Range const& r) {
 	out < "{";
-	if (r.begin() == r.end()) {
+	if (std::begin(r) == std::end(r)) {
 		return  out < "} ";
 	}
 	tab.n++;
-    for (auto i = r.begin(); i != r.end(); ++i) {
+    for (auto i = std::begin(r); i != std::end(r); ++i) {
         out < "\n" < tab < *i < "\b,";
     }
 	tab.n--;
     return out < "\b \n" < tab < "} ";
 }
 
-
-extern Debug_ostream jdbg;
 
 } /* end of namespace jup */
