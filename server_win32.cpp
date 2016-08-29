@@ -97,8 +97,8 @@ Server::Server(Server_options const& op): options{op} {
     if (options.use_internal_server) {
         jout << "Running internal server...\n";
     } else {
-        jout << "Connecting to external server, IP: " << options.host_ip << ", Port: "
-             << options.host_port << "\n";
+        jout << "Connecting to external server, IP: " << options.host_ip.c_str() << ", Port: "
+             << options.host_port.c_str() << "\n";
     }
     
     if (op.use_internal_server) {
@@ -194,7 +194,7 @@ Server::~Server() {
         cancel_blocking_io(stdin_listener);
         std::cin.setstate(std::ios_base::failbit);  
         stdin_listener.join();
-    } else  {
+    } else if (stdin_listener.joinable())  {
         stdin_listener.detach();
     }
 }
@@ -216,7 +216,11 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
     if (options.use_internal_server) {
         data.socket.init("localhost", "12300");
     } else {
-        data.socket.init(options.host_ip, options.host_port);
+        if (options.host_port) {
+            data.socket.init(options.host_ip, options.host_port);
+        } else {
+            data.socket.init(options.host_ip, "12300");
+        }
     }
     
     
@@ -329,9 +333,9 @@ void Server::run_simulation() {
         }
     }
 
-    if (options.use_internal_server) {
-        proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
-    }
+    //if (options.use_internal_server) {
+    //    proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
+    //}
     
     for (Agent_data& i: agents()) {
         auto& mess = get_next_message_ref<Message_Sim_End>(i.socket, &general_buffer);

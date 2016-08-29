@@ -143,7 +143,7 @@ oP(Dump_location, name, pos, price)
 op(Shop_item, item, amount, cost, restock)
 oP(Shop, name, pos, items)
 op(Storage_item, item, amount, delivered)
-oP(Storage, name, pos, price, totalCapacity, usedCapacity)
+oP(Storage, name, pos, price, total_capacity, used_capacity, items)
 oP(Workshop, name, pos, price)
 op(Job_item, item, amount, delivered)
 oP(Job, id, storage, begin, end, items)
@@ -160,8 +160,8 @@ op(Shop_item_static, item, cost, period)
 op(Shop_item_dynamic, amount, restock)
 op(Shop_static, name, pos, items)
 op(Shop_dynamic, items)
-op(Storage_static, name, pos, price, totalCapacity)
-op(Storage_dynamic, usedCapacity, items)
+op(Storage_static, name, pos, price, total_capacity)
+op(Storage_dynamic, used_capacity, items)
 op(Task, type, where, item, state)
 oP(Entity_static, name, role)
 op(Entity_dynamic, pos)
@@ -176,6 +176,7 @@ op(World, simulation_id, team_id, opponent_team, seed_capital,
 
 
 #undef op
+#undef oP
 #undef display_obj
 #undef display_var_ex
 #undef display_var

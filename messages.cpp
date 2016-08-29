@@ -156,7 +156,7 @@ float mess_scale_lon;
 
 /**
  * Parse a point and change the min/max lat/lon accordingly. This assumes that
- * we are in an area that does not have wrapping longitudes (like 179°´to -179°)
+ * we are in an area that does not have wrapping longitudes (like 179Â° to -179Â°)
  * and is nearly planar.
  */
 void add_bound_point(pugi::xml_node xml_obj) {
@@ -476,7 +476,11 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
                 } else {
                     narrow(item.amount, xml_info.attribute("amount").as_int());
                 }
-                narrow(item.cost, xml_info.attribute("cost").as_int());
+                if (xml_info.attribute("cost").as_int() > 65535) {
+                    item.cost = 65535;
+                } else {
+                    narrow(item.cost, xml_info.attribute("cost").as_int());
+                }
                 narrow(item.restock, xml_info.attribute("restock").as_int());
             } else {
                 item.amount = 0xff;
@@ -494,6 +498,10 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		Storage fac;
 		fac.name = get_id(xml_fac.attribute("name").value());
 		fac.pos = get_pos(xml_fac);
+        narrow(fac.total_capacity, xml_fac.attribute("totalCapacity").as_int());
+        narrow(fac.used_capacity,  xml_fac.attribute("usedCapacity") .as_int());
+        narrow(fac.price, xml_fac.attribute("price").as_int());
+        
 		perc.storages.push_back(fac, into);
 	}
 	Storage* storage = perc.storages.begin();

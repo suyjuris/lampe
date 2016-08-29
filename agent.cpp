@@ -172,6 +172,9 @@ void Mothership_simple::on_request_action() {
         }
     }
     std::sort(cheaps.begin(), cheaps.end());
+
+    //if (perc().simulation_step == 109 or perc().simulation_step == 9999)
+    //    jdbg < perc(),0;
     
     bool no_job_flag = true;
     if (jobexe_offset != 0) {
@@ -200,7 +203,9 @@ void Mothership_simple::on_request_action() {
             if (get_execution_plan(jjob, &general_buffer)) {
                 val = jjob.reward - job().cost;
                 auto time_val = (std::min(jjob.end, sim().steps) - perc().simulation_step) / (job().needed.size() / 2 + 7);
-                jout << "Job " << get_string_from_id(jjob.id).c_str() << " with cost of " << val << " and " << time_val << " (" << job().needed.size() << ")\n";
+                if (perc().simulation_step % 5 == 0) {
+                    jout << "Job " << get_string_from_id(jjob.id).c_str() << " with cost of " << val << " and " << time_val << " (" << job().needed.size() << ")\n";
+                }
                 if (val > max_val and time_val > 12) {
                     max_val = val;
                     index = i;
@@ -814,7 +819,7 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 				s.name = f.name;
 				s.pos = f.pos;
 				s.price = f.price;
-				s.totalCapacity = f.totalCapacity;
+				s.total_capacity = f.total_capacity;
 			}
 			world().workshops.init(perc.workshops, &general_buffer);
 			general_buffer.trap_alloc(true);
@@ -839,7 +844,7 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 		situation().storages.init(&situation_buffer);
 		for (Storage const& f : perc.storages) {
 			Storage_dynamic & s = situation().storages.emplace_back(&situation_buffer);
-			s.usedCapacity = f.usedCapacity;
+			s.used_capacity = f.used_capacity;
 		}
 		situation().auction_jobs.init(perc.auction_jobs, &situation_buffer);
 		situation().priced_jobs.init(perc.priced_jobs, &situation_buffer);  

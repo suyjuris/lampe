@@ -97,10 +97,10 @@ struct Buffer_view {
 	bool operator!= (Buffer_view const& buf) const { return !(*this == buf); }
 
     /**
-     * Return whether the buffer is empty
+     * Return whether the buffer is valid and not empty.
      */
     operator bool() const {
-        return size();
+        return data() and size();
     }
     
 	void const* m_data;

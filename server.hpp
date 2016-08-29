@@ -57,7 +57,7 @@ class Server {
     
 public:
     Process proc;
-    Server_options options;
+    Server_options const& options;
 
     Server(Server_options const& op);
     ~Server();

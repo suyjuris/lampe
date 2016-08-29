@@ -299,8 +299,8 @@ struct Storage_item : Item_stack {
 
 struct Storage : Facility {
 	u32 price;
-	u16 totalCapacity;
-	u16 usedCapacity;
+	u16 total_capacity;
+	u16 used_capacity;
 	Flat_array<Storage_item> items;
 };
 

@@ -116,11 +116,11 @@ struct Shop_dynamic {
 
 struct Storage_static : Facility {
 	u8 price;
-	u16 totalCapacity;
+	u16 total_capacity;
 };
 
 struct Storage_dynamic {
-	u16 usedCapacity;
+	u16 used_capacity;
 	Flat_array<Storage_item> items;
 };
 
