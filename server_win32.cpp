@@ -297,7 +297,8 @@ void Server::run_simulation() {
             if (type == Message::BYE) {
                 goto outer;
             } else if (type == Message::SIM_START) {
-                jout << "Start of a new simulation.\n";
+                if (i == 0)
+                    jout << "Start of a new simulation.\n";
             } else {
                 assert(false);
             }

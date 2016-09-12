@@ -63,7 +63,7 @@ struct Mothership_simple: Mothership {
 
     bool agent_goto(u8 where, u8 agent, Buffer* into);
     bool get_execution_plan(Job const& job, Buffer* into);
-
+    
     Buffer general_buffer;
     Buffer step_buffer;
     Buffer old_step_buffer;

@@ -35,6 +35,8 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
     std::function<bool(Item_stack, u8, bool, int)> add_req;
     add_req = [this, exe, &add_req, into](Item_stack item, u8 depend, bool is_tool, int depth) {
         for (u8 agent: Agent_iter{}) {
+            if (is_tool and not sim(agent).role.tools.count(item.item))
+                continue;
             for (Item_stack i: perc(agent).self.items) {
                 if (i.item == item.item) {
                     int avail = i.amount;
@@ -105,7 +107,7 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
                 exe().cost += perc().workshops[workshop].price * item.amount;
                 exe().needed.push_back(Requirement {Requirement::CRAFT_ITEM, depend, item, i.name, is_tool}, into);
                 for (Item_stack j: i.tools) {
-                    exe().needed.push_back(Requirement {Requirement::CRAFT_ASSIST, dep, j, 0, false}, into);
+                    exe().needed.push_back(Requirement {Requirement::CRAFT_ASSIST, dep, j, 0, true}, into);
                 }
                 for (Item_stack j: i.consumed) {
                     if (not add_req({j.item, (u8)(j.amount * item.amount)}, dep, false, depth + 1)) return false;
@@ -553,10 +555,11 @@ void Mothership_simple::on_request_action() {
                 }
             }
         } else if (req.type == Requirement::CRAFT_ASSIST) {
-            // TODO: check whether this works with tools
             bool assigned = false;
             if (req.where != 0) {
                 for (u8 j: Agent_iter{}) {
+                    if (req.is_tool and not sim(j).role.tools.count(req.item.item))
+                        continue;
                     int avail = 0;
                     for (Item_stack i: perc(j).self.items) {
                         if (i.item == req.item.item) {
@@ -606,6 +609,9 @@ void Mothership_simple::on_request_action() {
                 }
             } else {
                 for (u8 j: Agent_iter{}) {
+                    if (req.is_tool and not sim(j).role.tools.count(req.item.item))
+                        continue;
+                    
                     int avail = 0;
                     for (Item_stack i: perc(j).self.items) {
                         if (i.item == req.item.item) {
