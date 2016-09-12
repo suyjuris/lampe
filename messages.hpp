@@ -158,4 +158,6 @@ T& get_next_message_ref(Socket& sock, Buffer* into) {
 void send_message(Socket& sock, Message_Auth_Request const& mess);
 void send_message(Socket& sock, Message_Action const& mess);
 
+void reset_messages();
+
 } /* end of namespace jup */

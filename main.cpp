@@ -17,7 +17,7 @@ void print_usage(c_str argv0) {
          << "Options:\n"
          << " " << MASSIM_LOC << " [path]  The location of the massim server, used to start the int"
          << "ernal server wrapper. (Should contain a scripts/ and a target/ subdirectory.)\n"
-         << " " << CONFIG_LOC << " [path]  The location of a specifig configuration to use for star"
+         << " " << CONFIG_LOC << " [path]  The location of a specific configuration to use for star"
          << "ting the internal server (there is a default value).\n"
          << " " << HOST_IP    << " [ip]    The IP address for connecting with an external server.\n"
          << " " << HOST_PORT  << " [port]  The port for connecting with an external server.\n"

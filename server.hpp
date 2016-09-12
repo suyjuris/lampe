@@ -44,6 +44,7 @@ struct Mothership {
     virtual void pre_request_action(u8 agent, Perception const& perc, int perc_size) = 0;
     virtual void on_request_action() = 0;
     virtual void post_request_action(u8 agent, Buffer* into) = 0;
+    virtual ~Mothership() {};
 };
 
 class Server {
@@ -75,7 +76,7 @@ private:
 	Buffer step_buffer;
     int agents_offset;
     int mothership_offset;
-    Mothership* mothership;
+    Mothership* mothership = nullptr;
 
     std::thread stdin_listener;
 };

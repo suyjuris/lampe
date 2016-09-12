@@ -44,13 +44,13 @@ struct Action {
 		GOTO, BUY, GIVE, RECIEVE, STORE, RETRIEVE, RETRIEVE_DELIVERED, DUMP,
 		ASSEMBLE, ASSIST_ASSEMBLE, DELIVER_JOB, CHARGE, BID_FOR_JOB, POST_JOB,
 		CALL_BREAKDOWN_SERVICE, CONTINUE, SKIP, ABORT, GOTO1, GOTO2, POST_JOB1,
-		POST_JOB2
+        POST_JOB2, NO_ACTION
 	};
 	static constexpr char const* action_names[] = {
 		"goto", "buy", "give", "recieve", "store", "retrieve",
 		"retrieve_delivered", "dump", "assemble", "assist_assemble",
 		"deliver_job", "charge", "bid_for_job", "post_job",
-		"call_breakdown_service", "continue", "skip", "abort"
+		"call_breakdown_service", "continue", "skip", "abort", "noAction"
     };
 	enum Action_result: u8 {
 		SUCCESSFUL = 0, /* guarantee this, so that users may assert */
@@ -99,6 +99,9 @@ struct Action {
 		for (u8 i = 0; i < count; ++i) {
 			if (std::strcmp(str, action_result_names[i]) == 0) return i;
 		}
+        if (*str == '\0') {
+            return -1;
+        }
 		assert(false);
 		return -1;
 	}

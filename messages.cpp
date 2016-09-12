@@ -181,6 +181,11 @@ void add_bound_point(pugi::xml_node xml_obj) {
     mess_scale_lon = (pmax.second - pmin.second) / 180.f * (lon_radius   * M_PI) / 255.f;
 }
 
+
+void reset_messages() {
+    messages_lat_lon_initialized = false;
+}
+
 /**
  * Construct the Pos object from the coordinates in xml_obj
  */
@@ -252,7 +257,7 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 	into->trap_alloc(true);
 	
 	auto& sim = into->emplace_back<Message_Sim_Start>().simulation;
-	narrow(sim.id,           xml_obj.attribute("id")         .as_int());
+    sim.id = get_id(xml_obj.attribute("id").value());
 	narrow(sim.seed_capital, xml_obj.attribute("seedCapital").as_int());
 	narrow(sim.steps,        xml_obj.attribute("steps")      .as_int());
 	sim.team = get_id(xml_obj.attribute("team").value());
@@ -305,7 +310,7 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 	assert(prod == sim.products.end());
 	
 	into->trap_alloc(false);
-	assert(into->size() - prev_size ==  space_needed);
+	assert(into->size() - prev_size == space_needed);
 }
 
 void parse_sim_end(pugi::xml_node xml_obj, Buffer* into) {

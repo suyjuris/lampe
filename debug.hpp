@@ -42,7 +42,7 @@ struct Debug_ostream {
         buf.reserve(256);
         while (true) {
             int count = std::snprintf(buf.data(), buf.capacity(), fmt, args...);
-            assert(count > 0);
+            assert(count >= 0);
             if (count < buf.capacity()) break;
             buf.reserve(count);
         }
@@ -153,7 +153,9 @@ op(Perception, deadline, id, simulation_step, self, team, entities,
 	charging_stations, shops, storages, workshops, auction_jobs, priced_jobs)
 op(Requirement, type, dependency, item, where, is_tool, state, id)
 oP(Job_execution, job, cost, needed)
-oP(Cheap_item, item, price, shop)
+op(Cheap_item, item, price, shop)
+op(Deliver_item, item, storage, job)
+op(Reserved_item, agent, until, item)
 oP(Charging_station_static, name, pos, rate, price, slots)
 op(Charging_station_dynamic, q_size)
 op(Shop_item_static, item, cost, period)

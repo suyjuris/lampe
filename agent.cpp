@@ -13,6 +13,15 @@
 
 namespace jup {
 
+static u8 agent_indices[] = {4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 12, 13, 14, 15};
+struct Agent_iter {
+    u8 const* begin() {
+        return agent_indices;
+    }
+    u8 const* end() {
+        return agent_indices + sizeof(agent_indices) / sizeof(agent_indices[0]);
+    }
+};
 
 bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
     assert(into);
@@ -25,24 +34,60 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
 
     std::function<bool(Item_stack, u8, bool, int)> add_req;
     add_req = [this, exe, &add_req, into](Item_stack item, u8 depend, bool is_tool, int depth) {
-        for (Storage const& storage: perc().storages) {
-            for (Storage_item i: storage.items) {
-                if (i.item == item.item and i.amount > i.delivered) {
-                    if (i.amount - i.delivered >= item.amount) {
+        for (u8 agent: Agent_iter{}) {
+            for (Item_stack i: perc(agent).self.items) {
+                if (i.item == item.item) {
+                    int avail = i.amount;
+                    for (auto r: exe().needed) {
+                        if (r.type == Requirement::CRAFT_ASSIST and r.item.item == item.item
+                            and r.where == (u8)(agent + 1)) {
+                            avail -= r.item.amount;
+                        }
+                    }
+                    assert(avail >= 0);
+                    if (avail >= item.amount) {
                         exe().needed.push_back(Requirement {
-                                Requirement::GET_ITEM, depend, item, storage.name, is_tool
-                        }, into);
+                            Requirement::CRAFT_ASSIST, depend, item, (u8)(agent + 1), is_tool
+                        }, into);                        
                         return true;
-                    } else {
+                    } else if (avail > 0) {
                         exe().needed.push_back(Requirement {
-                                Requirement::GET_ITEM, depend, {i.item, i.amount}, storage.name, is_tool
+                            Requirement::CRAFT_ASSIST, depend, {item.item, (u8)avail}, (u8)(agent + 1), is_tool
                         }, into);
-                        item.amount -= i.amount;
+                        item.amount -= avail;
                     }
                 }
             }
         }
 
+        for (Deliver_item i: delivs) {
+            bool job_exists = false;
+            for (Job_priced const& job: perc().priced_jobs) {
+                if (job.id == i.job) job_exists = true;
+            }
+            if (i.item.item == item.item and not job_exists) {
+                int avail = i.item.amount;
+                for (auto r: exe().needed) {
+                    if (r.type == Requirement::GET_ITEM and r.item.item == item.item
+                            and r.where == i.storage) {
+                        avail -= r.item.amount;
+                    }
+                }
+                assert(avail >= 0);
+                if (avail >= item.amount) {
+                    exe().needed.push_back(Requirement {
+                        Requirement::GET_ITEM, depend, item, i.storage, is_tool
+                    }, into);
+                    return true;
+                } else if (avail > 0) {
+                    exe().needed.push_back(Requirement {
+                        Requirement::GET_ITEM, depend, {item.item, (u8)avail}, i.storage, is_tool
+                    }, into);
+                    item.amount -= avail;
+                }
+            }
+        }
+        
         if (depth > 1) {
             int index = find_cheap(item.item);
             if (index != -1) {
@@ -60,7 +105,7 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
                 exe().cost += perc().workshops[workshop].price * item.amount;
                 exe().needed.push_back(Requirement {Requirement::CRAFT_ITEM, depend, item, i.name, is_tool}, into);
                 for (Item_stack j: i.tools) {
-                    exe().needed.push_back(Requirement {Requirement::CRAFT_ASSIST, dep, j, 0}, into);
+                    exe().needed.push_back(Requirement {Requirement::CRAFT_ASSIST, dep, j, 0, false}, into);
                 }
                 for (Item_stack j: i.consumed) {
                     if (not add_req({j.item, (u8)(j.amount * item.amount)}, dep, false, depth + 1)) return false;
@@ -94,8 +139,6 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
         }
 
         // TODO: Respect restock
-        // TODO: Try to use items in inventories of agents
-
 
         return false;
     };
@@ -119,24 +162,53 @@ void Mothership_simple::on_sim_start(u8 agent, Simulation const& simulation, int
     ++agent_count;
 }
 
-static u8 agent_indices[] = {4, 5, 6, 7, 8, 9, 10, 11, 0, 1, 2, 3, 12, 13, 14, 15};
-struct Agent_iter {
-    u8 const* begin() {
-        return agent_indices;
-    }
-    u8 const* end() {
-        return agent_indices + sizeof(agent_indices) / sizeof(agent_indices[0]);
-    }
-};
 
 void Mothership_simple::pre_request_action() {
     assert(agent_count == 16);
+    
+    std::swap(step_buffer, old_step_buffer);
+    std::memcpy(old_perc_offsets, perc_offsets, sizeof(perc_offsets));
+    
     step_buffer.reset();
 }
 
 void Mothership_simple::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
     perc_offsets[agent] = step_buffer.size();
     step_buffer.append(&perc, perc_size);
+
+    auto const& s = perc.self;
+    
+    if (s.last_action == Action::DELIVER_JOB) {
+        if (s.last_action_result == Action::SUCCESSFUL_PARTIAL) {
+            auto &o = old_perc(agent).self;
+            for (auto i: o.items) {
+                int count = i.amount;
+                for (auto j: s.items) {
+                    if (i.item == j.item) {
+                        count -= j.amount;
+                    }
+                }
+                assert(0 <= count and count < 256);
+                if (count > 0) {
+                    u8 storage = 0;
+                    for (Job& k: old_perc().priced_jobs) {
+                        if (k.id == job().job) {
+                            storage = k.storage;
+                            break;
+                        }
+                    }
+                    delivs.push_back( {{i.item, (u8)count}, storage, job().job} );
+                }
+            }
+        } else if (s.last_action_result == Action::SUCCESSFUL) {
+            for (int i = 0; (unsigned)i < delivs.size(); ++i) {
+                if (delivs[i].job == old_job) {
+                    delivs.erase(delivs.begin() + i);
+                    --i;
+                }
+            }
+        }
+    }
 }
 
 void Mothership_simple::on_request_action() {
@@ -184,8 +256,31 @@ void Mothership_simple::on_request_action() {
                 break;
             }
         }
+
+        // Watchdog
+        bool active = false;
+        for (u8 agent: Agent_iter{}) {
+            if (perc(agent).self.last_action != Action::ABORT
+                    and (perc(agent).self.last_action_result == Action::SUCCESSFUL
+                    or perc(agent).self.last_action_result == Action::SUCCESSFUL_PARTIAL
+                    or perc(agent).self.last_action_result == Action::FAILED_RANDOM)) {
+                active = true;
+            }
+        }
+        if (not active and not no_job_flag) {
+            ++watchdog_timer;
+            if (watchdog_timer > 2) {
+                no_job_flag = true;
+                jdbg<"Watchdog activated.",0;
+            }
+        } else {
+            watchdog_timer = 0;
+        }
     }
     if (no_job_flag) {
+        watchdog_timer = 0;
+        reserved_items.clear();
+        
         for (int i = 0; i < 16; ++i) {
             if (agent_task[i].type != Requirement::VISIT) {
                 agent_task[i].type = Requirement::NOTHING;
@@ -195,7 +290,6 @@ void Mothership_simple::on_request_action() {
         }
         float max_val = 0; int index = -1;
         for (int i = 0; i < perc().priced_jobs.size(); ++i) {
-
             Job_priced const& jjob = perc().priced_jobs[i];
             
             float val;
@@ -227,6 +321,7 @@ void Mothership_simple::on_request_action() {
             jout << "Taking job "
                  << get_string_from_id(perc().priced_jobs[index].id).c_str() << '\n';
             jdbg < job(),0;
+            old_job = job().job;
         } else {
             while (shop_visited_index < perc().shops.size()) {
                 float min_dist = std::numeric_limits<float>::infinity();
@@ -293,7 +388,15 @@ void Mothership_simple::on_request_action() {
     //    if (i.type == Requirement::NOTHING) ++count_idle;
     //}
 
-    int dep = 0;
+    /*if (perc().simulation_step == 720) {
+        for (u8 j: Agent_iter{}) {
+            jdbg<agent_task[j],0;
+        }
+        jdbg<=job().needed,0;
+        jdbg,0;
+        }*/
+    
+    int dep = perc().simulation_step < 0;
     for (int i = job().needed.size() - 1; i >= dep; --i) {
         //if (not count_idle) return;
         //if (waiting.count(i)) continue;
@@ -306,23 +409,42 @@ void Mothership_simple::on_request_action() {
         if (req.dependency != 0xff and req.dependency > dep) {
             dep = req.dependency;
         }
-
+        
         if (req.type == Requirement::GET_ITEM or req.type == Requirement::BUY_ITEM) {
             bool assigned = false;
-            if (req.is_tool) {
+            /*if (req.is_tool) {
                 for (int j: Agent_iter{}) {
-                    for (auto item: perc(j).self.items) {
-                        if (item.item == req.item.item) {
+                    int avail = 0;
+                    for (Item_stack i: perc(j).self.items) {
+                        if (i.item == req.item.item) {
+                            avail = i.amount;
+                            break;
+                        }
+                    }
+                    for (Reserved_item i: reserved_items) {
+                        if (i.agent == j and i.item.item == req.item.item) {
+                            avail -= i.item.amount;
+                        }
+                    }
+                    
+                    if (avail > 0) {
+                        if (avail < req.item.amount) {
+                            jdbg<"DiscaPart7"<req<"agent="<(int)j,0;
+                            reserved_items.push_back({j, req.dependency, {req.item.item, (u8)avail}});
+                            req.item.amount -= avail;
+                        } else {
+                            jdbg<"Discarded7"<req<"agent="<(int)j,0;
+                            reserved_items.push_back({j, req.dependency, req.item});
                             assigned = true;
                             break;
                         }
                     }
                     if (assigned) break;
                 }
-            }
+                }*/
 
             if (not assigned) {
-                for (int j: Agent_iter{}) {
+                for (u8 j: Agent_iter{}) {
                     if (agent_task[j].type == Requirement::NOTHING
                         or (agent_task[j].type == Requirement::CRAFT_ASSIST
                             and is_dep(i, agent_task[j].dependency))
@@ -337,19 +459,24 @@ void Mothership_simple::on_request_action() {
                             }
                         }
                         assert(p);
-                        int max_count = (sim(j).role.max_load - perc(j).self.load) / p->volume;
+                        int max_count = p->volume > 0 ? (sim(j).role.max_load -
+                                        perc(j).self.load) / p->volume : 83726;
                         if (max_count == 0) {
                             continue;
                         } else if (max_count >= req.item.amount) {
                             agent_task[j] = req;
-                            optimize_loc(j, agent_task[j]);
-                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str() << ' ' << (int)req.item.amount << '\n';
+                            if (req.type == Requirement::BUY_ITEM)
+                                optimize_loc(j, agent_task[j]);
+                            jdbg<"Assigned1"<req<"agent="<(int)j,0;
+                            reserved_items.push_back({j, req.dependency, req.item});
                             req.type = Requirement::NOTHING;
                             break;
                         } else {
                             agent_task[j] = req;
-                            optimize_loc(j, agent_task[j]);
-                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str() << ' ' << (int)req.item.amount << '\n';
+                            if (req.type == Requirement::BUY_ITEM)
+                                optimize_loc(j, agent_task[j]);
+                            jdbg<"Assigned2"<req<"agent="<(int)j,0;
+                            reserved_items.push_back({j, req.dependency, req.item});
                             agent_task[j].item.amount = max_count;
                             req.item.amount -= max_count;
                         }
@@ -358,50 +485,45 @@ void Mothership_simple::on_request_action() {
             }
         } else if (req.type == Requirement::CRAFT_ITEM) {
             bool assigned = false;
-
-            if (req.is_tool) {
-                for (int j: Agent_iter{}) {
-                    for (auto item: perc(j).self.items) {
-                        if (item.item == req.item.item) {
-                            if (item.amount < req.item.amount) {
-                                req.item.amount -= item.amount;
-                            } else {
-                                assigned = true;
-                                break;
-                            }     
+            for (u8 j: Agent_iter{}) {
+                if (agent_task[j].dependency == i and agent_task[j].state >= 2) {
+                    Product const* p = nullptr;
+                    for (auto const& j: sim().products) {
+                        if (j.name == req.item.item) {
+                            p = &j; break;
                         }
                     }
-                    if (assigned) break;
-                }
-            }
- 
-             
-            if (not assigned) {
-                for (int j: Agent_iter{}) {
-                    if (agent_task[j].dependency == i and agent_task[j].state >= 2) {
-                        Product const* p = nullptr;
-                        for (auto const& j: sim().products) {
-                            if (j.name == req.item.item) {
-                                p = &j; break;
-                            }
-                        }
-                        assert(p);
-                        int max_count = (sim(j).role.max_load - perc(j).self.load) / p->volume;
-                        if (max_count < req.item.amount) continue;
-                        
-                        if (req.is_tool and (not sim(j).role.tools.count(req.item.item) or sim(j).role.speed == 1)) continue;
+                    assert(p);
+                    if (req.is_tool and
+                        (not sim(j).role.tools.count(req.item.item)
+                         or sim(j).role.speed == 1)) {
+                        continue;
+                    }
+                    
+                    int max_count = p->volume > 0 ? (sim(j).role.max_load
+                            - perc(j).self.load) / p->volume : 83726;
+                    if (max_count >= req.item.amount) {
                         agent_task[j] = req;
-                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str()  << ' ' << (int)req.item.amount << '\n';
+                        reserved_items.push_back({j, req.dependency, req.item});
+                        jdbg<"Assigned3"<req<"agent="<(int)j,0;
                         req.type = Requirement::NOTHING;
                         assigned = true;
                         break;
-                    }
+                    } else if (max_count > 0) {
+                        agent_task[j] = req;
+                        agent_task[j].item.amount = max_count;
+                        req.item.amount -= max_count;
+                        jdbg<agent_task[j],0;
+                        reserved_items.push_back({j, req.dependency, agent_task[j].item});
+                        jdbg<"AssiPart3"<req<"agent="<(int)j,0;
+                    }                        
                 }
             }
             if (not assigned) {
-                for (int j: Agent_iter{}) {
+                for (u8 j: Agent_iter{}) {
                     if (agent_task[j].type == Requirement::NOTHING) {
-                        if (req.is_tool and (not sim(j).role.tools.count(req.item.item) or sim(j).role.speed == 1)) continue;
+                        if (req.is_tool and (not sim(j).role.tools.count(req.item.item)
+                                or sim(j).role.speed == 1)) continue;
                         Product const* p = nullptr;
                         for (auto const& j: sim().products) {
                             if (j.name == req.item.item) {
@@ -409,45 +531,120 @@ void Mothership_simple::on_request_action() {
                             }
                         }
                         assert(p);
-                        int max_count = (sim(j).role.max_load - perc(j).self.load) / p->volume;
-                        if (max_count < req.item.amount) continue;
+                        int max_count = p->volume > 0 ? (sim(j).role.max_load
+                                        - perc(j).self.load) / p->volume : 83726;
                         
-                        agent_task[j] = req;
-                        jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str()  << ' ' << (int)req.item.amount << '\n';
-                        req.type = Requirement::NOTHING;
-                        assigned = true;
-                        break;
+                        if (max_count >= req.item.amount) {
+                            agent_task[j] = req;
+                            reserved_items.push_back({j, req.dependency, req.item});
+                            jdbg<"Assigned4"<req<"agent="<(int)j,0;
+                            req.type = Requirement::NOTHING;
+                            assigned = true;
+                            break;
+                        } else if (max_count > 0) {
+                            agent_task[j] = req;
+                            agent_task[j].item.amount = max_count;
+                            req.item.amount -= max_count;
+                            jdbg<agent_task[j],0;
+                            reserved_items.push_back({j, req.dependency, agent_task[j].item});
+                            jdbg<"AssiPart4"<req<"agent="<(int)j,0;
+                        }
                     }
                 }
             }
         } else if (req.type == Requirement::CRAFT_ASSIST) {
+            // TODO: check whether this works with tools
             bool assigned = false;
-            for (int j: Agent_iter{}) {
-                if (agent_task[j].dependency != req.dependency) continue;
-                for (auto item: perc(j).self.items) {
-                    if (item.item == req.item.item) {
-                        req.type = Requirement::NOTHING;
-                        assigned = true;
-                        break;
+            if (req.where != 0) {
+                for (u8 j: Agent_iter{}) {
+                    int avail = 0;
+                    for (Item_stack i: perc(j).self.items) {
+                        if (i.item == req.item.item) {
+                            avail = i.amount;
+                            break;
+                        }
                     }
-                }
-            }
-            if (not assigned) {
-                for (int j: Agent_iter{}) {
-                    if (agent_task[j].type != Requirement::NOTHING) continue;
-                    for (auto item: perc(j).self.items) {
-                        if (item.item == req.item.item) {
-                            agent_task[j] = req;
-                            jout << (int)req.type << ' ' << (int)req.dependency << ' ' << (int)i << ' ' << (int)j << ' ' << get_string_from_id(req.item.item).c_str()  << ' ' << (int)req.item.amount << '\n';
-
-                            if (item.amount < req.item.amount) {
-                                req.item.amount -= item.amount;
+                    for (Reserved_item i: reserved_items) {
+                        if (i.agent == j and i.item.item == req.item.item) {
+                            avail -= i.item.amount;
+                        }
+                    }
+                    
+                    if (avail > 0) {
+                        if (req.is_tool or (agent_task[j].type != Requirement::NOTHING
+                                and agent_task[j].dependency == req.dependency))
+                        {
+                            if (avail < req.item.amount) {
+                                jdbg<"DiscaPart1"<req<"agent="<(int)j,0;
+                                req.item.amount -= (u8)avail;
+                                reserved_items.push_back({j, req.dependency, {req.item.item, (u8)avail}});
                             } else {
+                                jdbg<"Discarded1"<req<"agent="<(int)j,0;
+                                reserved_items.push_back({j, req.dependency, req.item});
                                 req.type = Requirement::NOTHING;
                                 assigned = true;
-                                break;
+                            }
+                        } else if (agent_task[j].type == Requirement::NOTHING) {
+                            if (avail < req.item.amount) {
+                                jdbg<"AssiPart5"<req<"agent="<(int)j,0;
+                                reserved_items.push_back({j, req.dependency, {req.item.item, (u8)avail}});
+                                req.item.amount -= avail;
+                                agent_task[j] = req;
+                                agent_task[j].item = {req.item.item, (u8)avail};
+                                agent_task[j].where = 0;
+                            } else {
+                                jdbg<"Assigned5"<req<"agent="<(int)j,0;
+                                reserved_items.push_back({j, req.dependency, req.item});
+                                agent_task[j] = req;
+                                agent_task[j].where = 0;
+                                req.type = Requirement::NOTHING;
+                                assigned = true;
                             }
                         }
+                    }
+                    if (assigned) break;
+                }
+            } else {
+                for (u8 j: Agent_iter{}) {
+                    int avail = 0;
+                    for (Item_stack i: perc(j).self.items) {
+                        if (i.item == req.item.item) {
+                            avail = i.amount;
+                            break;
+                        }
+                    }
+                    for (Reserved_item i: reserved_items) {
+                        if (i.agent == j and i.item.item == req.item.item and i.until != 0xff) {
+                            avail -= i.item.amount;
+                        }
+                    }
+                    if (agent_task[i].type == Requirement::NOTHING) {
+                        if (avail >= req.item.amount) {
+                            agent_task[j] = req;
+                            reserved_items.push_back({j, req.dependency, req.item});
+                            jdbg<"Assigned6"<req<"agent="<(int)j,0;
+                            req.type = Requirement::NOTHING;
+                            assigned = true;
+                            break;
+                        } else if (avail > 0) {
+                            agent_task[j] = req;
+                            reserved_items.push_back({j, req.dependency, {req.item.item, (u8)avail}});
+                            jdbg<"AssiPart6"<req<"agent="<(int)j,0;
+                            req.item.amount -= avail;
+                        }
+                    } else if (agent_task[i].dependency == req.dependency) {
+                        if (avail >= req.item.amount) {
+                            reserved_items.push_back({j, req.dependency, req.item});
+                            jdbg<"Discarded2"<req<"agent="<(int)j,0;
+                            req.type = Requirement::NOTHING;
+                            assigned = true;
+                            break;
+                        } else if (avail > 0) {
+                            reserved_items.push_back({j, req.dependency, {req.item.item, (u8)avail}});
+                            jdbg<"DiscaPart2"<req<"agent="<(int)j,0;
+                            req.item.amount -= avail;
+                        }
+
                     }
                 }
             }
@@ -466,9 +663,17 @@ std::ostream& operator<< (std::ostream& os, std::pair<T, T> p) {
 
 bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
     auto const& s = perc(agent).self;
+
+    if (s.charge == 0) {
+        agent_last_go[agent] = 0;
+        jdbg<"Calling breakdown service!",0;
+        into->emplace_back<Action_Call_breakdown_service>();
+        return false;
+    }
     
 	for (Charging_station const& i : perc().charging_stations) {
 		if (i.name == s.in_facility and s.charge < sim(agent).role.max_battery) {
+            agent_last_cs[agent] = i.name;
             agent_cs[agent] = 0;
             into->emplace_back<Action_Charge>();
             return false;
@@ -490,18 +695,17 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
     bool charge_flag = false;
 
     float reach = (s.charge - 70) / 10 * sim(agent).role.speed * speed_conversion * 10.f / 13.f;
-//    if (agent == 0) jout << (int)agent << ' ' << reach << ' ' << min_dist << " Reching\n";
     if (reach < min_dist) {
         charge_flag = true;
     } else if (agent_cs[agent] != 0) {
         charge_flag = true;
     } else if (perc(agent).self.route.size() > 1) {
+        // TODO: The agent must be able to reach a charging station after reaching target
         auto const& route = perc(agent).self.route;
         float dist_to_target = perc(agent).self.pos.dist(route[0]);
         for (int i = 1; i < route.size(); ++i) {
             dist_to_target += route[i-1].dist(route[i]);
         }
-//        if (agent == 0) jout << dist_to_target << '\n';
         if (reach < dist_to_target) {
             charge_flag = true;
             float min_dist = std::numeric_limits<float>::infinity();
@@ -515,26 +719,40 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
             }
         }
     }
-    
+
 	if (charge_flag) {
         if (agent_cs[agent] == 0) {
             agent_cs[agent] = station->name;
         }
-        if (s.last_action_result == Action::SUCCESSFUL and s.in_facility != agent_cs[agent]
-            and agent_last_go[agent] == agent_cs[agent]) {
-            into->emplace_back<Action_Continue>();
-            return false;
+        
+        if (charge_flag and agent_last_cs[agent] == agent_cs[agent]) {
+            // We're stuck in a loop
+            charge_flag = false;
         } else {
-            into->emplace_back<Action_Goto1>(agent_cs[agent]);
-            agent_last_go[agent] = agent_cs[agent];
-            return false;
+            if (s.last_action_result == Action::SUCCESSFUL and s.in_facility != agent_cs[agent]
+                and agent_last_go[agent] == agent_cs[agent]) {
+                into->emplace_back<Action_Continue>();
+                return false;
+            } else {
+                into->emplace_back<Action_Goto1>(agent_cs[agent]);
+                agent_last_go[agent] = agent_cs[agent];
+                return false;
+            }
         }
+    }
+
+    if (agent_last_go[agent] != agent_last_cs[agent] and agent_last_go[agent] != where) {
+        agent_last_cs[agent] = 0;
     }
     
     if (s.in_facility == where) {
+        agent_last_cs[agent] = 0;
         return true;
     } else if (agent_last_go[agent] == where
                and s.last_action_result == Action::SUCCESSFUL) {
+        if (agent == 0 and perc().simulation_step == 1) {
+            charge_flag = false;
+        }
         into->emplace_back<Action_Continue>();
         return false;
 	} else {
@@ -574,36 +792,86 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
             }
         } else {
             int other_agent = -1;
+            bool do_craft = false;
             for (int i: Agent_iter{}) {
                 if (i == agent) continue;
                 if (agent_task[i].type == Requirement::CRAFT_ITEM
-                    and agent_task[i].id == req.dependency
-                    /* and agent_task[i].where == job().needed[req.dependency].where */) {
+                        and agent_task[i].id == req.dependency
+                        and agent_task[i].item.amount > 0) {
                     other_agent = i;
+                    do_craft = agent_task[i].state == 1;
                     break;
                 }
             }
-
-            if (job().needed[req.dependency].item.amount == 0) {
-                jdbg < "Delivered"<agent
-                <req,0;
+            
+            if (do_craft) {
+                req.type = Requirement::CRAFT_ASSIST;
+                req.state = 3;
+                into->emplace_back<Action_Assist_assemble>(sim(other_agent).id);
+                return false;
+            } else if (other_agent == -1
+                    and job().needed[req.dependency].type == Requirement::NOTHING) {
+                jdbg<"Delivered"<req<"agent="<agent,0;
                 return true;
             } else {
-                if (other_agent != -1) {
-                    req.type = Requirement::CRAFT_ASSIST;
-                    req.state = 1;
-                    into->emplace_back<Action_Assist_assemble>(sim(other_agent).id);
-                    return false;
-                }
                 into->emplace_back<Action_Abort>();
                 return false;
             }
         }
     };
-    
+
     auto const& s = perc(agent).self;
+
     if (req.type == Requirement::GET_ITEM) {
-        assert(false); // Not implemented
+        if (req.state == 0) {
+            if (agent_goto(req.where, agent, into)) {
+                req.state = 1;
+            } else {
+                return;
+            }
+        }
+        if (req.state == 1) {
+            if (s.last_action == Action::RETRIEVE_DELIVERED and not s.last_action_result) {
+                u8 amount = req.item.amount;
+                for (int i = 0; (unsigned)i < delivs.size(); ++i) {
+                    if (delivs[i].item.item == req.item.item and delivs[i].storage == req.where) {
+                        if (delivs[i].item.amount > amount) {
+                            delivs[i].item.amount -= amount;
+                            break;
+                        } else {
+                            amount -= delivs[i].item.amount;
+                            delivs.erase(delivs.begin() + i);
+                            --i;
+                            if (amount == 0) break;
+                        }
+                    }
+                }
+                if (req.is_tool) {
+                    req.type = Requirement::NOTHING;
+                } else {
+                    req.state = 2;
+                }
+            } else {
+                into->emplace_back<Action_Retrieve_delivered>(req.item);
+                return;
+            }
+        }
+        if (req.state == 2) {
+            if (req.is_tool) {
+                req.type = Requirement::NOTHING;
+            } else if (agent_goto(get_target(), agent, into)) {
+                req.state = 3;
+            } else {
+                return;
+            }
+        }
+        if (req.state == 3) {
+            if (deliver()) {
+                req.type = Requirement::NOTHING;
+            } else {
+                return;
+            }
+        }
     } else if (req.type == Requirement::BUY_ITEM) {
         if (req.state == 0) {
             if (agent_goto(req.where, agent, into)) {
@@ -651,7 +919,25 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         if (req.state == 1) {
             if (s.last_action == Action::ASSEMBLE and !s.last_action_result) {
                 --req.item.amount;
-                --job().needed[req.id].item.amount;
+
+                bool noone_left = req.item.amount == 0
+                    and job().needed[req.id].type == Requirement::NOTHING;
+                if (noone_left) {
+                    for (u8 j: Agent_iter{}) {
+                        if (agent_task[j].id == req.id and agent_task[j].item.amount) {
+                            noone_left = false;
+                            break;
+                        }
+                    }
+                }
+                if (noone_left) {
+                    for (size_t i = 0; i < reserved_items.size(); ++i) {
+                        if (reserved_items[i].until == req.id) {
+                            reserved_items.erase(reserved_items.begin() + i);
+                            --i;
+                        }
+                    }
+                }
             }
             if (req.item.amount == 0) {
                 req.state = 2;
@@ -677,13 +963,13 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         }
     } else if (req.type == Requirement::CRAFT_ASSIST) {
         if (req.state == 0) {
-            if (agent_goto(perc().workshops[workshop].name, agent, into)) {
-                req.state = 1;
+            if (agent_goto(get_target(), agent, into)) {
+                req.state = 3;
             } else {
                 return;
             }
         }
-        if (req.state == 1) {
+        if (req.state == 3) {
             if (deliver()) {
                 req.type = Requirement::NOTHING;
             } else {
@@ -744,7 +1030,7 @@ void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, in
 }
 
 void Mothership_complex::pre_request_action() {
-	step_buffer.reset();
+    step_buffer.reset();
     situation_buffer.reset();
     
     
@@ -1121,7 +1407,7 @@ u8 Mothership_complex::can_agent_do(Situation const& sit, u8 agent, Task task) {
     } else if (task.type == Task::BUY_ITEM or task.type == Task::CRAFT_ITEM
                or task.type == Task::CRAFT_ASSIST) {
         auto vol = get_by_id<Product>(task.item.item)->volume;
-        int max_count = (world().roles[s.role].max_load - d.load) / vol;
+        int max_count = vol > 0 ? (world().roles[s.role].max_load - d.load) / vol : 83726;
         return max_count;
     } else if (task.type == Task::DELIVER_ITEM) {
         for (auto const& i: d.items) {

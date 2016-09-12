@@ -7,6 +7,7 @@
 
 #include "server.hpp"
 #include "messages.hpp"
+#include "debug.hpp"
 
 namespace jup {
 
@@ -71,8 +72,17 @@ bool Server_options::check_valid() {
  * Close the java process on termination. This is easier said than done.
  */
 void handle_sigint(int sig) {
-    assert(sig == SIGINT or sig == SIGABRT or sig == SIGTERM);
-    jerr << "Caught interrupt, cleaning up...\n";
+    if (sig == SIGINT) {
+        jerr << "Caught interrupt, cleaning up...\n";
+    } else if (sig == SIGABRT) {
+        jerr << "abort() was called, cleaning up...\n";
+    } else if (sig == SIGTERM) {
+        jerr << "Caught a SIGTERM, cleaning up...\n";
+    } else if (sig == SIGFPE) {
+        jerr << "An arithmetic exception occurred, cleaning up...\n";
+    } else {
+        assert(false);
+    }
     program_closing = true;
     std::signal(SIGABRT, SIG_DFL);
     delete server;
@@ -107,6 +117,7 @@ Server::Server(Server_options const& op): options{op} {
         assert(std::signal(SIGINT,  &handle_sigint) != SIG_ERR);
         assert(std::signal(SIGABRT, &handle_sigint) != SIG_ERR);
         assert(std::signal(SIGTERM, &handle_sigint) != SIG_ERR);
+        assert(std::signal(SIGFPE,  &handle_sigint) != SIG_ERR);
 
         if (!is_debugged()) {
             stdin_listener = std::thread {&sigint_from_stdin};
@@ -177,6 +188,7 @@ Server::Server(Server_options const& op): options{op} {
         general_buffer.append("", 1);
     
         proc.write_to_stdout = true;
+        // TODO: Better error message for missing java
         proc.init(general_buffer.data() + cmdline, general_buffer.data() + dir);
 
         proc.waitFor("[ NORMAL ]  ##   InetSocketListener created");
@@ -200,7 +212,7 @@ Server::~Server() {
 }
 
 void Server::register_mothership(Mothership* mothership_) {
-    mothership = mothership_;
+    //mothership = mothership_;
 }
 
 bool Server::register_agent(Server_options::Agent_option const& agent) {
@@ -271,77 +283,102 @@ void Server::run_simulation() {
         proc.write_to_stdout = true;
         proc.send("\n");
     }
-    
-    int max_steps = -1;
 
-    for (int i = 0; i < agents().size(); ++i) {
-        auto& mess = get_next_message_ref<Message_Sim_Start>(agents()[i].socket, &general_buffer);
-        mess.simulation.id = register_id(agents()[i].name);
-        if (max_steps != -1) {
-            assert(max_steps == mess.simulation.steps);
-        } else {
-            max_steps = mess.simulation.steps;
-        }
-        if (not agents()[i].is_dumb) {
-            mothership->on_sim_start(agents()[i].id, mess.simulation,
-                                     general_buffer.end() - (char*)&mess.simulation);
-        }
-    }
-
-    for (int step = 0; step < max_steps; ++step) {
-        if (options.use_internal_server and step == max_steps - 1) {
-            proc.write_to_buffer = true;
-        }
-
-        if (not options.use_internal_server) {
-            jout << "Currently in step " << step + 1 << '\n';
-        }
+    while (true) {
+        delete mothership;
+        mothership = new Mothership_simple;
+        reset_messages();
         
-        step_buffer.reset();
+        int max_steps = -1;
 
-        mothership->pre_request_action();
-        
-        for (Agent_data& i: agents()) {
-            auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
-            assert(mess.perception.simulation_step == step);
-
-            i.last_perception_id = mess.perception.id;
-            if (not i.is_dumb) {
-                mothership->pre_request_action(i.id, mess.perception,
-                                               step_buffer.end() - (char*)&mess.perception);
-            }
-        }
-
-        mothership->on_request_action();
-        
-        for (Agent_data& i: agents()) {
-            int action_offset = step_buffer.size();
-            
-            if (i.is_dumb) {
-                step_buffer.emplace_back<Action_Skip>();
+        for (int i = 0; i < agents().size(); ++i) {
+            int mess_offset = general_buffer.size();
+            u8 type = get_next_message(agents()[i].socket, &general_buffer);
+            if (type == Message::BYE) {
+                goto outer;
+            } else if (type == Message::SIM_START) {
+                jout << "Start of a new simulation.\n";
             } else {
-                mothership->post_request_action(i.id, &step_buffer);
+                assert(false);
+            }
+            auto& mess = general_buffer.get<Message_Sim_Start>(mess_offset);
+            
+            mess.simulation.id = register_id(agents()[i].name);
+            if (max_steps != -1) {
+                assert(max_steps == mess.simulation.steps);
+            } else {
+                max_steps = mess.simulation.steps;
+            }
+            if (not agents()[i].is_dumb) {
+                mothership->on_sim_start(agents()[i].id, mess.simulation,
+                                         general_buffer.end() - (char*)&mess.simulation);
+            }
+        }
+
+        for (int step = 0; step < max_steps; ++step) {
+            if (options.use_internal_server and step == max_steps - 1) {
+                proc.write_to_buffer = true;
             }
 
-            // TODO: Fix the allocations
-            step_buffer.reserve_space(256);
+            if (not options.use_internal_server) {
+                jout << "Currently in step " << step + 1 << '\n';
+            }
+        
+            step_buffer.reset();
+            mothership->pre_request_action();
+        
+            for (Agent_data& i: agents()) {
+                auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
+                if (options.use_internal_server) {
+                    assert(mess.perception.simulation_step == step);
+                } else {
+                    if (step != mess.perception.simulation_step) {
+                        jerr << "Warning: Adjusting simulation step from " << step << " to "
+                             << mess.perception.simulation_step << '\n';
+                        step = mess.perception.simulation_step;
+                    }
+                }
+                
+
+                i.last_perception_id = mess.perception.id;
+                if (not i.is_dumb) {
+                    mothership->pre_request_action(i.id, mess.perception,
+                                                   step_buffer.end() - (char*)&mess.perception);
+                }
+            }
+
+            mothership->on_request_action();
+        
+            for (Agent_data& i: agents()) {
+                int action_offset = step_buffer.size();
             
-            auto& answ = step_buffer.emplace_back<Message_Action>(
-                i.last_perception_id, step_buffer.get<Action_Post_job1>(action_offset), &step_buffer
-            );
-            send_message(i.socket, answ);
+                if (i.is_dumb) {
+                    step_buffer.emplace_back<Action_Skip>();
+                } else {
+                    mothership->post_request_action(i.id, &step_buffer);
+                }
+
+                // TODO: Fix the allocations
+                step_buffer.reserve_space(256);
+            
+                auto& answ = step_buffer.emplace_back<Message_Action>(
+                    i.last_perception_id, step_buffer.get<Action_Post_job1>(action_offset), &step_buffer
+                    );
+                send_message(i.socket, answ);
+            }
         }
+                    
+        for (Agent_data& i: agents()) {
+            auto& mess = get_next_message_ref<Message_Sim_End>(i.socket, &general_buffer);
+            jout << "The match has ended. Agent " << i.name.c_str() << " has a ranking of "
+                 << (int)mess.ranking << " and a score of " << mess.score << '\n';
+        }
+
+        if (options.use_internal_server) break;
     }
 
-    //if (options.use_internal_server) {
-    //    proc.waitFor("[ NORMAL ]  ##   ######################### new simulation run ----");
-    //}
-    
-    for (Agent_data& i: agents()) {
-        auto& mess = get_next_message_ref<Message_Sim_End>(i.socket, &general_buffer);
-        jout << "The simulation has ended. Agent " << i.name.c_str() << " has a ranking of "
-             << (int)mess.ranking << " and a score of " << mess.score << '\n';
-    }
+  outer:
+    jout << "The tournament has ended.\n";    
 }
 
 } /* end of namespace jup */

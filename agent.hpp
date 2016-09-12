@@ -42,9 +42,19 @@ struct Cheap_item {
         return price < other.price;
     }
 };
+struct Deliver_item {
+    Item_stack item;
+    u8 storage;
+    u16 job;
+};
+
+struct Reserved_item {
+    u8 agent;
+    u8 until;
+    Item_stack item;
+};
 
 struct Mothership_simple: Mothership {
-
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
     void pre_request_action() override;
     void pre_request_action(u8 agent, Perception const& perc, int perc_size) override;
@@ -54,24 +64,31 @@ struct Mothership_simple: Mothership {
     bool agent_goto(u8 where, u8 agent, Buffer* into);
     bool get_execution_plan(Job const& job, Buffer* into);
 
-
     Buffer general_buffer;
     Buffer step_buffer;
+    Buffer old_step_buffer;
     int sim_offsets[agents_per_team];
     int perc_offsets[agents_per_team];
+    int old_perc_offsets[agents_per_team];
+    u16 old_job;
     int jobexe_offset = 0;
     Requirement agent_task[agents_per_team];
     u8 agent_cs[agents_per_team];
     u8 agent_last_go[agents_per_team];
+    u8 agent_last_cs[agents_per_team];
     int agent_count = 0;
     u8 workshop = 0xff;
-
+    u8 watchdog_timer = 0;
+    
+    std::vector<Deliver_item> delivs;
     std::vector<Cheap_item> cheaps;
+    std::vector<Reserved_item> reserved_items;
     int shop_visited_index = 0;
 
     auto& job() { return general_buffer.get<Job_execution>(jobexe_offset); }
     auto& sim(int i = 0) { return general_buffer.get<Simulation>(sim_offsets[i]); }
     auto& perc(int i = 0) { return step_buffer.get<Perception>(perc_offsets[i]); }
+    auto& old_perc(int i = 0) { return old_step_buffer.get<Perception>(old_perc_offsets[i]); }
 
     int find_cheap(u8 id) {
         for (size_t i = 0; i < cheaps.size(); ++i) {
@@ -79,7 +96,7 @@ struct Mothership_simple: Mothership {
         }
         return -1;
     }
-
+    
     float dist_cost(Pos p1, u8 agent) {
         return p1.distr(perc(agent).self.pos) / sim(agent).role.speed * 4.5;
     }
