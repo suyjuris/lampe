@@ -1,13 +1,12 @@
 
 # Generic C++ Makefile
 
-# The commented code is for Linux (untested)
-
 TARGET = jup
 LIBS = -lWs2_32 -static-libstdc++ -static-libgcc -static
 CXX = g++
 CXXFLAGS = -g -Wall -Werror -pedantic -fmax-errors=2
 CPPFLAGS = -include global.hpp -std=c++1y
+LDFLAGS  = -Wall
 EXEEXT = .exe
 
 .PHONY: default all clean test
@@ -33,7 +32,7 @@ default: $(TARGET)
 .PRECIOUS: $(TARGET) $(OBJECTS)
 
 $(TARGET): $(OBJECTS)
-	$(CXX) $(OBJECTS) -Wall $(LIBS) -o $@
+	$(CXX) $(OBJECTS) $(LDFLAGS) $(LIBS) -o $@
 
 clean:
 	-rm -f *.o *.d *~

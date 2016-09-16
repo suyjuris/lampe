@@ -66,12 +66,17 @@ struct Socket {
 	 */
 	int recv(Buffer* into);
 
+    /**
+     * Returns an integer uniquely identifying the socket. No other guarantees are made.
+     */
+    int get_id() const;
+
 	
 	bool initialized = false;
 	
 	// Only guaranteed to contain valid data when the socket is valid is set,
 	// else UNDEFINED. The contents are implementation defined.
-	char data[8] = {0};
+	char data[16] = {0};
 };
 	
 } /* end of namespace jup */

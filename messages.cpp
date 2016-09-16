@@ -12,6 +12,7 @@
 
 #include "messages.hpp"
 #include "pugixml.hpp"
+#include "debug.hpp"
 
 namespace jup {
 
@@ -49,6 +50,9 @@ struct Buffer_writer: public pugi::xml_writer {
 // should not relocate during operations! (This is not optimal. However, the
 // maximum amount needed for parsing a message should stay constant.)
 static Buffer memory_for_messages;
+
+// The additional data behind a message (that belongs to the next message in the socket)
+static Buffer additional_data;
 
 static int idmap_offset;
 static int idmap16_offset;
@@ -156,7 +160,7 @@ float mess_scale_lon;
 
 /**
  * Parse a point and change the min/max lat/lon accordingly. This assumes that
- * we are in an area that does not have wrapping longitudes (like 179° to -179°)
+ * we are in an area that does not have wrapping longitudes (like 179Â° to -179Â°)
  * and is nearly planar.
  */
 void add_bound_point(pugi::xml_node xml_obj) {
@@ -588,12 +592,38 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	assert(into->size() - prev_size == space_needed);
 }
 
+/**
+ * This is a helper struct, managing the additional memory for the messages.
+ */
+struct Additional_block {
+    int id;
+    int size;
+    char* data() { return (char*)(&size + 1); }
+    int offset() { return sizeof(Additional_block) + size; }
+};
+
 // see header
 u8 get_next_message(Socket& sock, Buffer* into) {
 	assert(into);
 
-	memory_for_messages.reset();
+    memory_for_messages.reset();
 
+    // There may be data left from the last invocation, append it.
+    int id = sock.get_id();
+    for (int i = 0; i < additional_data.size();) {
+        auto& block = additional_data.get<Additional_block>(i);
+        if (block.id == id) {
+            jdbg<"Addomh",0;
+            memory_for_messages.append(block.data(), block.size);
+            int offset = block.offset();
+            char* next = ((char*)&block) + offset;
+            std::memmove((char*)&block, next, additional_data.end() - next);
+            additional_data.addsize(-offset);
+        } else {
+            i += block.offset();
+        }
+    }
+    
 	// Make the buffer bigger if needed. This should not happen, but I don't
 	// like having no fallbacks.
 	if (additional_buffer_needed) {
@@ -601,11 +631,32 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 		additional_buffer_needed = 0;
 	}
     memory_for_messages.trap_alloc(true);
-
-	do {
+    
+	while (true) {
+        int prev_size = memory_for_messages.size();
 		sock.recv(&memory_for_messages);
-		assert(memory_for_messages.size());
-	} while (memory_for_messages.end()[-1] != 0);
+        jdbg<memory_for_messages.size()<' '<prev_size,0;
+        jdbg<memory_for_messages.data(),0;
+		assert(memory_for_messages.size() > prev_size);
+
+        // The message is complete if there is a terminating zero, but there may
+        // be data behind that. This data will be collected in additional_data.
+        bool zero_found = false;
+        for (int i = prev_size; i < memory_for_messages.size(); ++i) {
+            if (memory_for_messages[i] == 0) {
+                int size = memory_for_messages.size() - i - 1;
+                if (size) {
+                    jdbg<"joining"<size<memory_for_messages.size()<(int)memory_for_messages[i+1],0;
+                    additional_data.emplace_back<Additional_block>(id, size);
+                    additional_data.append({memory_for_messages.data() + i+1, size});
+                    memory_for_messages.resize(i + 1);
+                }
+                zero_found = true;
+                break;
+            }
+        }
+        if (zero_found) break;
+	}
 
     if (dump_xml_output) {
         *dump_xml_output << "<<< incoming <<<\n" << memory_for_messages.data() << '\n';

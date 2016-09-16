@@ -68,13 +68,13 @@ public:
     void run_simulation();
 
     Flat_array<Agent_data>& agents() {
-        return general_buffer.get<Flat_array<Agent_data>>(agents_offset);
+        return agent_buffer.get<Flat_array<Agent_data>>();
     }
 
 private:
+    Buffer agent_buffer;
     Buffer general_buffer;
 	Buffer step_buffer;
-    int agents_offset;
     int mothership_offset;
     Mothership* mothership = nullptr;
 

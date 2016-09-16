@@ -195,10 +195,10 @@ Server::Server(Server_options const& op): options{op} {
                          
         general_buffer.reset();
     }
-    
-    agents_offset = general_buffer.size();
-    general_buffer.emplace_back<Flat_array<Agent_data>>();
-    agents().init(&general_buffer);
+
+    agent_buffer.reserve(2048);
+    agent_buffer.emplace_back<Flat_array<Agent_data>>();
+    agents().init(&agent_buffer);
 }
 
 Server::~Server() {
@@ -219,7 +219,7 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
     assert(agent.name);
     assert(agent.password);
     
-    agents().push_back(Agent_data {}, &general_buffer);
+    agents().push_back(Agent_data {}, &agent_buffer);
     Agent_data& data = agents().back();
 
     data.name = agent.name;
@@ -282,8 +282,10 @@ void Server::run_simulation() {
         proc.write_to_buffer = false;
         proc.write_to_stdout = true;
         proc.send("\n");
+    } else {
+        jout << "Connected.\n";
     }
-
+    
     while (true) {
         delete mothership;
         mothership = new Mothership_simple;
@@ -315,7 +317,7 @@ void Server::run_simulation() {
                                          general_buffer.end() - (char*)&mess.simulation);
             }
         }
-
+        
         for (int step = 0; step < max_steps; ++step) {
             if (options.use_internal_server and step == max_steps - 1) {
                 proc.write_to_buffer = true;

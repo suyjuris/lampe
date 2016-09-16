@@ -151,7 +151,7 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
         if (not add_req({i.item, (u8)(i.amount - i.delivered)}, 0xff, false, 0))
             return false;
     }
-    exe().cost += exe().needed.size() * 400;
+    exe().cost += exe().needed.size() * 150 + 2000;
     return true;
 }
 
@@ -390,15 +390,19 @@ void Mothership_simple::on_request_action() {
     //    if (i.type == Requirement::NOTHING) ++count_idle;
     //}
 
-    /*if (perc().simulation_step == 720) {
-        for (u8 j: Agent_iter{}) {
-            jdbg<agent_task[j],0;
+    /*if (perc().simulation_step == 196) {
+        jdbg<=reserved_items,0;
+    }
+    
+    if (perc().simulation_step == 196) {
+        for (u8 j = 0; j < 16; ++j) {
+            jdbg<agent_task[j]<"agent="<j,0;
         }
         jdbg<=job().needed,0;
         jdbg,0;
         }*/
     
-    int dep = perc().simulation_step < 0;
+    int dep = 0;
     for (int i = job().needed.size() - 1; i >= dep; --i) {
         //if (not count_idle) return;
         //if (waiting.count(i)) continue;
@@ -575,7 +579,8 @@ void Mothership_simple::on_request_action() {
                     
                     if (avail > 0) {
                         if (req.is_tool or (agent_task[j].type != Requirement::NOTHING
-                                and agent_task[j].dependency == req.dependency))
+                                and agent_task[j].dependency == req.dependency
+                                and req.dependency != 0xff))
                         {
                             if (avail < req.item.amount) {
                                 jdbg<"DiscaPart1"<req<"agent="<(int)j,0;
@@ -624,7 +629,7 @@ void Mothership_simple::on_request_action() {
                             avail -= i.item.amount;
                         }
                     }
-                    if (agent_task[i].type == Requirement::NOTHING) {
+                    if (agent_task[j].type == Requirement::NOTHING) {
                         if (avail >= req.item.amount) {
                             agent_task[j] = req;
                             reserved_items.push_back({j, req.dependency, req.item});
@@ -638,7 +643,7 @@ void Mothership_simple::on_request_action() {
                             jdbg<"AssiPart6"<req<"agent="<(int)j,0;
                             req.item.amount -= avail;
                         }
-                    } else if (agent_task[i].dependency == req.dependency) {
+                    } else if (agent_task[j].dependency == req.dependency) {
                         if (avail >= req.item.amount) {
                             reserved_items.push_back({j, req.dependency, req.item});
                             jdbg<"Discarded2"<req<"agent="<(int)j,0;
@@ -701,6 +706,9 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
     bool charge_flag = false;
 
     float reach = (s.charge - 70) / 10 * sim(agent).role.speed * speed_conversion * 10.f / 13.f;
+    if (sim(agent).role.name == get_id_from_string("Drone")) {
+        reach *= 1.5;
+    }
     if (reach < min_dist) {
         charge_flag = true;
     } else if (agent_cs[agent] != 0) {
@@ -730,7 +738,7 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
         if (agent_cs[agent] == 0) {
             agent_cs[agent] = station->name;
         }
-        
+
         if (charge_flag and agent_last_cs[agent] == agent_cs[agent]) {
             // We're stuck in a loop
             charge_flag = false;
@@ -817,7 +825,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
                 return false;
             } else if (other_agent == -1
                     and job().needed[req.dependency].type == Requirement::NOTHING) {
-                jdbg<"Delivered"<req<"agent="<agent,0;
+                jdbg<"Delivered1"<req<"agent="<agent,0;
                 return true;
             } else {
                 into->emplace_back<Action_Abort>();
@@ -853,6 +861,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
                     }
                 }
                 if (req.is_tool) {
+                    jdbg<"Delivered5"<req<"agent="<agent,0;
                     req.type = Requirement::NOTHING;
                 } else {
                     req.state = 2;
@@ -864,6 +873,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         }
         if (req.state == 2) {
             if (req.is_tool) {
+                jdbg<"Delivered4"<req<"agent="<agent,0;
                 req.type = Requirement::NOTHING;
             } else if (agent_goto(get_target(), agent, into)) {
                 req.state = 3;
@@ -889,6 +899,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         if (req.state == 1) {
             if (s.last_action == Action::BUY and not s.last_action_result) {
                 if (req.is_tool) {
+                    jdbg<"Delivered2"<req<"agent="<agent,0;
                     req.type = Requirement::NOTHING;
                 } else {
                     req.state = 2;
@@ -900,6 +911,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         }
         if (req.state == 2) {
             if (req.is_tool) {
+                jdbg<"Delivered3"<req<"agent="<agent,0;
                 req.type = Requirement::NOTHING;
             } else if (agent_goto(get_target(), agent, into)) {
                 req.state = 3;
@@ -953,6 +965,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
         }
         if (req.state == 2) {
             if (req.is_tool) {
+                jdbg<"Delivered6"<req<"agent="<agent,0;
                 req.type = Requirement::NOTHING;
             } else if (agent_goto(get_target(), agent, into)) {
                 req.state = 3;

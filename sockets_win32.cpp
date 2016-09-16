@@ -26,13 +26,20 @@ Socket_context::~Socket_context() {
 	WSACleanup();
 }
 
+struct Socket_win32_data {
+    SOCKET sock;
+    int id;
+};
+
+static int socket_id_counter = 0;
+
 /**
  * Helper, does some casting and asserting
  */
-SOCKET& get_sock(Socket const& sock) {
-	static_assert(sizeof(sock.data) >= sizeof(SOCKET),
+Socket_win32_data& get_sock(Socket const& sock) {
+	static_assert(sizeof(sock.data) >= sizeof(Socket_win32_data),
 				  "sock.data is not big enough");
-	return *((SOCKET*)sock.data);
+	return *((Socket_win32_data*)sock.data);
 }
 
 // see header
@@ -57,7 +64,7 @@ void Socket::init(Buffer_view address, Buffer_view port) {
 				closesocket(sock);
 				jerr << "Warning: Unable to connect to server!\n";
 			} else {
-				get_sock(*this) = sock;
+				get_sock(*this) = {sock, ++socket_id_counter};
 				break;
 			}
 		}
@@ -74,7 +81,7 @@ void Socket::init(Buffer_view address, Buffer_view port) {
 // see header
 void Socket::close() {
 	if (!initialized) return;
-	closesocket(get_sock(*this));
+	closesocket(get_sock(*this).sock);
 	initialized = false;
 }
 
@@ -82,7 +89,7 @@ void Socket::close() {
 void Socket::send(Buffer_view buf) {
 	assert(initialized);
 	
-	auto code = ::send(get_sock(*this), buf.data(), buf.size(), 0);
+	auto code = ::send(get_sock(*this).sock, buf.data(), buf.size(), 0);
 	if (code == SOCKET_ERROR) {
 		jerr << "Warning: send failed: " << WSAGetLastError() << '\n';
 		close();
@@ -97,7 +104,8 @@ int Socket::recv(Buffer* into) {
 	int total_count = 0;
 	while(true) {
 		into->reserve_space(256);
-		auto result = ::recv(get_sock(*this), into->end(), into->space(), 0);
+		auto result = ::recv(get_sock(*this).sock, into->end(), into->space(), 0);
+        jout<<this<<'\n';
 		
 		if (result < 0) {
             // This is dirty. When the program is closing down, there could be
@@ -110,7 +118,11 @@ int Socket::recv(Buffer* into) {
 			jerr << "Warning: recv failed: " << WSAGetLastError() << '\n';
 			close();
 			return total_count;
-		} else if (result < into->space()) {
+		} else if (result == 0) {
+            jerr << "Warning: recv returned 0\n";
+			close();
+			return total_count;
+        } else if (result < into->space()) {
 			into->addsize(result);
 			total_count += result;
 			return total_count;
@@ -121,6 +133,10 @@ int Socket::recv(Buffer* into) {
 			assert(false);
 		}
 	}
+}
+
+int Socket::get_id() const {
+    return get_sock(*const_cast<Socket*>(this)).id;
 }
 
 } /* end of namespace jup */

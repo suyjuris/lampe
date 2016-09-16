@@ -134,7 +134,7 @@ Buffer_view get_string_from_id(u16 id);
     
 /**
  * Writes the next message in the Socket into the end of the Buffer. Returns the
- * type of the Message read. Blocks.
+ * type of the Message read. Blocks. id iden
  */
 u8 get_next_message(Socket& sock, Buffer* into);
 
