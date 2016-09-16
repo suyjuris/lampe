@@ -65,6 +65,18 @@ bool Server_options::check_valid() {
             return false;
         }
     }
+
+    for (size_t i = 0; i + 1 < agents.size(); ++i) {
+        for (size_t j = i + 1; j < agents.size(); ++j) {
+            if (agents[i].name == agents[j].name) {
+                jerr << "You are trying to connect two agents with the same name ("
+                     << agents[i].name.c_str() << "). This would result in a crash, that someone ma"
+                    "y or may not have debugged for quite a while longer than they needed to.\n";
+                return false;
+            }
+        }
+    }
+    
     return true;
 }
 

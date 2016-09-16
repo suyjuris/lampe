@@ -105,7 +105,6 @@ int Socket::recv(Buffer* into) {
 	while(true) {
 		into->reserve_space(256);
 		auto result = ::recv(get_sock(*this).sock, into->end(), into->space(), 0);
-        jout<<this<<'\n';
 		
 		if (result < 0) {
             // This is dirty. When the program is closing down, there could be

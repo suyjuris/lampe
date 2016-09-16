@@ -613,7 +613,6 @@ u8 get_next_message(Socket& sock, Buffer* into) {
     for (int i = 0; i < additional_data.size();) {
         auto& block = additional_data.get<Additional_block>(i);
         if (block.id == id) {
-            jdbg<"Addomh",0;
             memory_for_messages.append(block.data(), block.size);
             int offset = block.offset();
             char* next = ((char*)&block) + offset;
@@ -631,14 +630,9 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 		additional_buffer_needed = 0;
 	}
     memory_for_messages.trap_alloc(true);
-    
-	while (true) {
-        int prev_size = memory_for_messages.size();
-		sock.recv(&memory_for_messages);
-        jdbg<memory_for_messages.size()<' '<prev_size,0;
-        jdbg<memory_for_messages.data(),0;
-		assert(memory_for_messages.size() > prev_size);
 
+    int prev_size = 0;
+	while (true) {
         // The message is complete if there is a terminating zero, but there may
         // be data behind that. This data will be collected in additional_data.
         bool zero_found = false;
@@ -646,7 +640,6 @@ u8 get_next_message(Socket& sock, Buffer* into) {
             if (memory_for_messages[i] == 0) {
                 int size = memory_for_messages.size() - i - 1;
                 if (size) {
-                    jdbg<"joining"<size<memory_for_messages.size()<(int)memory_for_messages[i+1],0;
                     additional_data.emplace_back<Additional_block>(id, size);
                     additional_data.append({memory_for_messages.data() + i+1, size});
                     memory_for_messages.resize(i + 1);
@@ -656,38 +649,44 @@ u8 get_next_message(Socket& sock, Buffer* into) {
             }
         }
         if (zero_found) break;
+        
+        prev_size = memory_for_messages.size();
+		sock.recv(&memory_for_messages);
+		assert(memory_for_messages.size() > prev_size);
 	}
 
     if (dump_xml_output) {
         *dump_xml_output << "<<< incoming <<<\n" << memory_for_messages.data() << '\n';
     }
-    
-	pugi::xml_document doc;
-	assert(doc.load_buffer_inplace(memory_for_messages.data(), memory_for_messages.size()));
 
-	auto xml_mess = doc.child("message");
-	auto type = xml_mess.attribute("type").value();
+    {
+        pugi::xml_document doc;
+        assert(doc.load_buffer_inplace(memory_for_messages.data(), memory_for_messages.size()));
 
-	int prev_size = into->size();
+        auto xml_mess = doc.child("message");
+        auto type = xml_mess.attribute("type").value();
+
+        int prev_size = into->size();
 	
-	if (std::strcmp(type, "auth-response") == 0) {
-		parse_auth_response(xml_mess.child("authentication"), into);
-	} else if (std::strcmp(type, "sim-start") == 0) {
-		parse_sim_start(xml_mess.child("simulation"), into);
-	} else if (std::strcmp(type, "sim-end") == 0) {
-		parse_sim_end(xml_mess.child("sim-result"), into);
-	} else if (std::strcmp(type, "request-action") == 0) {
-		parse_request_action(xml_mess.child("perception"), into);
-	} else if (std::strcmp(type, "bye") == 0) {
-		into->emplace_back<Message_Bye>();
-	} else {
-		assert(false);
-	}
+        if (std::strcmp(type, "auth-response") == 0) {
+            parse_auth_response(xml_mess.child("authentication"), into);
+        } else if (std::strcmp(type, "sim-start") == 0) {
+            parse_sim_start(xml_mess.child("simulation"), into);
+        } else if (std::strcmp(type, "sim-end") == 0) {
+            parse_sim_end(xml_mess.child("sim-result"), into);
+        } else if (std::strcmp(type, "request-action") == 0) {
+            parse_request_action(xml_mess.child("perception"), into);
+        } else if (std::strcmp(type, "bye") == 0) {
+            into->emplace_back<Message_Bye>();
+        } else {
+            assert(false);
+        }
 
-	auto& mess = into->get<Message_Server2Client>(prev_size);
-	narrow(mess.timestamp, xml_mess.attribute("timestamp").as_ullong());
-    memory_for_messages.trap_alloc(false);
-	return mess.type;
+        auto& mess = into->get<Message_Server2Client>(prev_size);
+        narrow(mess.timestamp, xml_mess.attribute("timestamp").as_ullong());
+        memory_for_messages.trap_alloc(false);
+        return mess.type;
+    }
 }
 
 // Helper for the send_message functions
