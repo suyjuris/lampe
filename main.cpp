@@ -7,6 +7,10 @@
 #include "messages.hpp"
 #include "system.hpp"
 #include "server.hpp"
+#include "statistics.hpp"
+#include "debug.hpp"
+
+#include <memory>
 
 using namespace jup;
 
@@ -205,42 +209,61 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 }
 
 int main(int argc, c_str const* argv) {
-    Server_options options;
-    // TODO Add offset pointers and make this not unnecessary
-    options._string_storage.reserve_space(4096);
-    options._string_storage.trap_alloc(true);
-    
-    std::ofstream dump_xml;
-    
-    if (argc <= 1) {
-        options._string_storage.trap_alloc(false);
-        print_usage(argv[0]);
-        return 1;
-    } else if (not parse_cmdline(argc - 1, argv + 1, &options)) {
-        jerr << "\nCall with the --help option to print usage information.";
-        options._string_storage.trap_alloc(false);
-        return 1;
-    } else if (not options.check_valid()) {
-        options._string_storage.trap_alloc(false);
-        return 1;
-    }
 
-    server = new Server {options};
+	Server_options options;
+	// TODO Add offset pointers and make this not unnecessary
+	options._string_storage.reserve_space(4096);
+	options._string_storage.trap_alloc(true);
 
-    if (options.dump_xml) {
-        dump_xml = std::ofstream {options.dump_xml.c_str()};
-        init_messages(&dump_xml);
-    } else {
-        init_messages();
-    }
-	Socket_context socket_context;
-    Mothership_simple mothership;
+	std::ofstream dump_xml;
 
-    server->register_mothership(&mothership);
-    server->run_simulation();
+	if (argc <= 1) {
+		options._string_storage.trap_alloc(false);
+		print_usage(argv[0]);
+		return 1;
+	} else if (not parse_cmdline(argc - 1, argv + 1, &options)) {
+		jerr << "\nCall with the --help option to print usage information.";
+		options._string_storage.trap_alloc(false);
+		return 1;
+	} else if (not options.check_valid()) {
+		options._string_storage.trap_alloc(false);
+		return 1;
+	}
 
-    options._string_storage.trap_alloc(false);
-    program_closing = true;
-    delete server;
-    return 0;
+	while (true) {
+		try {
+			Mothership_statistics mothership; {
+				auto server_wrapper = std::make_unique<Server>(options);
+				server = &*server_wrapper;
+
+				if (options.dump_xml) {
+					dump_xml = std::ofstream{ options.dump_xml.c_str() };
+					init_messages(&dump_xml);
+				}
+				else {
+					init_messages();
+				}
+				Socket_context socket_context;
+				server->register_mothership(&mothership);
+				server->run_simulation();
+
+				//delete server;
+			}
+			Buffer b;
+			b.read_from_file("statistics.dat");
+			if (b.size() == 0) {
+				b.emplace_back<Flat_list<Game_statistic, u16, u32>>();
+				b.get<Flat_list<Game_statistic, u16, u32>>(0).init(&b);
+			}
+			auto& list = b.get<Flat_list<Game_statistic, u16, u32>>(0);
+
+			list.push_back(Buffer_view(mothership.get_statistic()), &b);
+			b.write_to_file("statistics.dat");
+		} catch(...) {
+			jerr << "Error occured, starting next simulation" << endl;
+		}
+	}
+	options._string_storage.trap_alloc(false);
+	program_closing = true;
+	return 0;
 }

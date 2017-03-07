@@ -6,6 +6,7 @@
 #include <cstring>
 #include <string>
 #include <vector>
+#include <fstream>
 
 namespace jup {
 
@@ -324,6 +325,25 @@ public:
 	char operator[] (int pos) const {
 		assert(0 <= pos and pos < size());
 		return data()[pos];
+	}
+
+	void write_to_file(char const* filename) {
+		std::ofstream o;
+		o.open(filename, std::ios::out | std::ios::binary);
+		o.write(data(), size());
+		o.close();
+	}
+
+	void read_from_file(char const* filename) {
+		std::ifstream i;
+		i.open(filename, std::ios::in | std::ios::binary);
+		char c = i.get();
+		while (!i.fail()) {
+			emplace_back<char>(c);
+			c = i.get();
+		}
+		assert(i.eof());
+		i.close();
 	}
 
 private:

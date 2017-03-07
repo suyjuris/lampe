@@ -1,5 +1,7 @@
 #pragma once
 
+#define SOFTASSERT
+
 /**
  * Needed for CancelSynchronousIo
  */
@@ -7,7 +9,12 @@
 
 #define BARRIER "--------------------------------"
 
+#ifndef SOFTASSERT
 #include <cassert>
+#else
+void assert(bool expr);
+#endif
+
 #include <cstdint>
 #include <ostream>
 
@@ -44,5 +51,8 @@ using std::endl;
  * of some error messages.
  */
 extern bool program_closing;
+
+// for debugging
+void debug_break();
 
 } /* end of namespace jup */

@@ -224,7 +224,7 @@ Server::~Server() {
 }
 
 void Server::register_mothership(Mothership* mothership_) {
-    //mothership = mothership_;
+    mothership = mothership_;
 }
 
 bool Server::register_agent(Server_options::Agent_option const& agent) {
@@ -299,9 +299,6 @@ void Server::run_simulation() {
     }
     
     while (true) {
-        delete mothership;
-        mothership = new Mothership_simple;
-        reset_messages();
         
         int max_steps = -1;
 
