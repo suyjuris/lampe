@@ -560,6 +560,7 @@ void Mothership_simple::on_request_action() {
             }
         } else if (req.type == Requirement::CRAFT_ASSIST) {
             bool assigned = false;
+            // TODO: This if may actually be mostly redundant
             if (req.where != 0) {
                 for (u8 j: Agent_iter{}) {
                     if (req.is_tool and not sim(j).role.tools.count(req.item.item))

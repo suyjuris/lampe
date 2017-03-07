@@ -555,7 +555,11 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		for (auto xml_item: xml_job.child("items").children("item")) {
 			Job_item item;
 			item.item = get_id(xml_item.attribute("name").value());
-			narrow(item.amount,    xml_item.attribute("amount")   .as_int());
+            if (xml_item.attribute("amount")   .as_int() > 254) {
+                item.amount = 254;
+            } else {
+                narrow(item.amount,    xml_item.attribute("amount")   .as_int());
+            }
 			narrow(item.delivered, xml_item.attribute("delivered").as_int());
 			joba->items.push_back(item, into);
 		}
@@ -580,7 +584,11 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		for (auto xml_item: xml_job.child("items").children("item")) {
 			Job_item item;
 			item.item = get_id(xml_item.attribute("name").value());
-			narrow(item.amount,    xml_item.attribute("amount")   .as_int());
+            if (xml_item.attribute("amount")   .as_int() > 254) {
+                item.amount = 254;
+            } else {
+                narrow(item.amount,    xml_item.attribute("amount")   .as_int());
+            }
 			narrow(item.delivered, xml_item.attribute("delivered").as_int());
 			jobp->items.push_back(item, into);
 		}
@@ -658,7 +666,6 @@ u8 get_next_message(Socket& sock, Buffer* into) {
     if (dump_xml_output) {
         *dump_xml_output << "<<< incoming <<<\n" << memory_for_messages.data() << '\n';
     }
-
     {
         pugi::xml_document doc;
         assert(doc.load_buffer_inplace(memory_for_messages.data(), memory_for_messages.size()));
