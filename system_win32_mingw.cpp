@@ -123,6 +123,7 @@ void Process::fillBuffer() {
     
     while (true) {
         DWORD len;
+		if (!*this) return;
         if (!ReadFile(read, &buf, sizeof(buf) - 1, &len, 0)) {
             auto code = GetLastError();
             if (code == ERROR_BROKEN_PIPE) {

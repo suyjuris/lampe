@@ -518,6 +518,7 @@ struct Flat_list {
 		Offset_t next = first;
 		char* ptr = (char*)this;
 		while (pos --> 0) {
+			assert(next);
 			ptr += next;
 			next = *(Offset_t*)ptr;
 		}
@@ -527,7 +528,8 @@ struct Flat_list {
 		assert(pos >= 0);
 		Offset_t next = first;
 		char* ptr = (char*)this;
-		while (pos--> 0) {
+		while (pos --> 0) {
+			assert(next);
 			ptr += next;
 			next = *(Offset_t*)ptr;
 		}
@@ -568,6 +570,10 @@ struct Flat_list {
 		return containing->emplace_back<T>(obj);
 	}
 
+	/**
+	* Insert an element with additional data at the back. This operation may invalidate
+	* all pointers to the Buffer, including the one you use for this object!
+	*/
 	void push_back(Buffer_view obj, Buffer* containing) {
 		assert(containing);
 		assert((void*)containing->begin() <= (void*)this
@@ -602,6 +608,17 @@ struct Flat_list {
 
 	operator bool() const {
 		return first;
+	}
+
+	/** 
+	* Append another list being first element of list_buffer and its data. This operation may
+	* invalidate all pointers to the Buffer, including the one you use for this object!
+	*/
+	void append(Buffer_view list_buffer, Buffer *containing) {
+		Flat_list<T, Offset_t, Offset_big_t> const& list = *(Flat_list<T, Offset_t, Offset_big_t> const*)list_buffer.data();
+		*(Offset_t*)((char*)this + last) = containing->end() + list.first - sizeof(Flat_list);
+		last = containing->end() + list.last - sizeof(Flat_list);
+		containing->append(list_buffer.data() + sizeof(Flat_list), list_buffer.size() - sizeof(Flat_list));
 	}
 };
 

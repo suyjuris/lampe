@@ -210,6 +210,9 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 
 int main(int argc, c_str const* argv) {
 
+	//statistics_main();
+	//return 0;
+
 	Server_options options;
 	// TODO Add offset pointers and make this not unnecessary
 	options._string_storage.reserve_space(4096);
@@ -248,7 +251,9 @@ int main(int argc, c_str const* argv) {
 				server->run_simulation();
 
 				//delete server;
+				jout << "closing scope...";
 			}
+			jout << "\nwriting to file... ";
 			Buffer b;
 			b.read_from_file("statistics.dat");
 			if (b.size() == 0) {
@@ -259,6 +264,7 @@ int main(int argc, c_str const* argv) {
 
 			list.push_back(Buffer_view(mothership.get_statistic()), &b);
 			b.write_to_file("statistics.dat");
+			jout << "done\n\n";
 		} catch(...) {
 			jerr << "Error occured, starting next simulation" << endl;
 		}

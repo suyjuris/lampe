@@ -214,13 +214,21 @@ Server::Server(Server_options const& op): options{op} {
 }
 
 Server::~Server() {
+	jout << "1";
     if (stdin_listener.joinable() and stdin_listener.get_id() != std::this_thread::get_id()) {
+		jout << "2";
         cancel_blocking_io(stdin_listener);
+		jout << "3";
         std::cin.setstate(std::ios_base::failbit);  
+		jout << "4";
         stdin_listener.join();
+		jout << "5";
     } else if (stdin_listener.joinable())  {
+		jout << "6";
         stdin_listener.detach();
+		jout << "7";
     }
+	jout << "8";
 }
 
 void Server::register_mothership(Mothership* mothership_) {
@@ -267,6 +275,7 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
 }
 
 void Server::run_simulation() {
+	jout << "\nrun_simulation beginning\n\n";
     if (options.agents.size()) {
         // Make sure to have all the dumb agents at the end
         for (auto i: options.agents) {
@@ -326,7 +335,7 @@ void Server::run_simulation() {
                                          general_buffer.end() - (char*)&mess.simulation);
             }
         }
-        
+
         for (int step = 0; step < max_steps; ++step) {
             if (options.use_internal_server and step == max_steps - 1) {
                 proc.write_to_buffer = true;
@@ -358,7 +367,6 @@ void Server::run_simulation() {
                                                    step_buffer.end() - (char*)&mess.perception);
                 }
             }
-
             mothership->on_request_action();
         
             for (Agent_data& i: agents()) {

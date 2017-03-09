@@ -44,6 +44,8 @@ struct Mothership_statistics : Mothership {
 
 void print_diagram(u16 const* values, u16 size, u16 width = 50, u16 height = 20,
 	double blur = 0.05, FILE* out = stdout);
+void print_diagram_log(u16 const* values, u16 size, u16 width = 50, u16 height = 20,
+	double blur = 0.05, FILE* out = stdout);
 void statistics_main();
 
 } /* end of namespace jup */
