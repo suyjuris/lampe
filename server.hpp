@@ -16,6 +16,7 @@ constexpr auto ADD_AGENT = "-a";
 constexpr auto ADD_DUMMY = "-u";
 constexpr auto DUMP_XML = "-d";
 constexpr auto LOAD_CFGFILE = "--load";
+constexpr auto STATISTICS = "-s";
     
 }
 
@@ -32,6 +33,8 @@ struct Server_options {
     bool use_internal_server = true;
     std::vector<Agent_option> agents;
     Buffer_view dump_xml;
+	bool statistics = false;
+	Buffer_view statistics_file;
 
     Buffer _string_storage;
 

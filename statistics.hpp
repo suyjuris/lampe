@@ -5,10 +5,17 @@
 
 namespace jup {
 
-
 struct Game_statistic {
+	u16 seed_capital;
+	u16 steps;
 	Flat_array<Product> products;
+	Flat_list<Role> roles;
+	Flat_array<Entity> agents;
+	Flat_array<Charging_station> charging_stations;
+	Flat_array<Dump_location> dump_locations;
 	Flat_array<Shop> shops;
+	Flat_array<Storage> storages; // items will stay uninitialized
+	Flat_array<Workshop> workshops;
 	Flat_list<Job_auction> auction_jobs;
 	Flat_list<Job_priced> priced_jobs;
 };

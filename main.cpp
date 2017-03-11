@@ -17,30 +17,32 @@ using namespace jup;
 
 void print_usage(c_str argv0) {
     using namespace cmd_options;
-    jerr << "Usage:\n  " << argv0 << " [options]\n  " << argv0 << " --help\n\n"
-         << "Options:\n"
-         << " " << MASSIM_LOC << " [path]  The location of the massim server, used to start the int"
-         << "ernal server wrapper. (Should contain a scripts/ and a target/ subdirectory.)\n"
-         << " " << CONFIG_LOC << " [path]  The location of a specific configuration to use for star"
-         << "ting the internal server (there is a default value).\n"
-         << " " << HOST_IP    << " [ip]    The IP address for connecting with an external server.\n"
-         << " " << HOST_PORT  << " [port]  The port for connecting with an external server.\n"
-         << " " << DUMP_XML  << " [path]  Debug option. If this is specified all xml messages betwe"
-         << "en the server and the program are dumped into a file.\n\n"
-         << " " << ADD_AGENT  << " [name] [password]  The login credentials for an agent. This opti"
-         << "on may be specified multiple times. It also may use the % symbol at the end of a name,"
-         << "which will be replaced by the numbers 1 to 16. For compatibility the , symbol has the "
-         << "same effect.\n"
-         << " " << ADD_DUMMY  << " [name] [password]  Like " << ADD_AGENT << " but adds a dummy tha"
-         << "t does not do anything.\n"
-         << " " << LOAD_CFGFILE << " [path]  The file is interpreted as a configfile. See below for"
-         << " the syntax.\n\n"
-         << " The programm determines automatically whether to run the internal server or connect t"
-         << "o an external server by checking with options have been specified (" << MASSIM_LOC
-         << " and " << CONFIG_LOC << " respectively, the latter has higher priority).\n\n"
-         << "Configfile syntax:\n"
-         << " The configfile is split into lines. Each lines either starts with an '#', which cause"
-         << "s it to be ignored, or has the following form:\n   option arg1 [arg2]\n\n";
+	jerr << "Usage:\n  " << argv0 << " [options]\n  " << argv0 << " --help\n\n"
+		<< "Options:\n"
+		<< " " << MASSIM_LOC << " [path]  The location of the massim server, used to start the int"
+		<< "ernal server wrapper. (Should contain a scripts/ and a target/ subdirectory.)\n"
+		<< " " << CONFIG_LOC << " [path]  The location of a specific configuration to use for star"
+		<< "ting the internal server (there is a default value).\n"
+		<< " " << HOST_IP << " [ip]    The IP address for connecting with an external server.\n"
+		<< " " << HOST_PORT << " [port]  The port for connecting with an external server.\n"
+		<< " " << DUMP_XML << " [path]  Debug option. If this is specified all xml messages betwe"
+		<< "en the server and the program are dumped into a file.\n\n"
+		<< " " << ADD_AGENT << " [name] [password]  The login credentials for an agent. This opti"
+		<< "on may be specified multiple times. It also may use the % symbol at the end of a name,"
+		<< "which will be replaced by the numbers 1 to 16. For compatibility the , symbol has the "
+		<< "same effect.\n"
+		<< " " << ADD_DUMMY << " [name] [password]  Like " << ADD_AGENT << " but adds a dummy tha"
+		<< "t does not do anything.\n"
+		<< " " << LOAD_CFGFILE << " [path]  The file is interpreted as a configfile. See below for"
+		<< " the syntax.\n\n"
+		<< " The programm determines automatically whether to run the internal server or connect t"
+		<< "o an external server by checking with options have been specified (" << MASSIM_LOC
+		<< " and " << CONFIG_LOC << " respectively, the latter has higher priority).\n\n"
+		<< "Configfile syntax:\n"
+		<< " The configfile is split into lines. Each lines either starts with an '#', which cause"
+		<< "s it to be ignored, or has the following form:\n   option arg1 [arg2]\n\n"
+		<< " " << STATISTICS << " [file]  Instead of launching competitive agents, gather statis"
+		<< "tical information about simulations and append them to the specified file\n\n";
 }
 
 /**
@@ -124,81 +126,86 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
                 into->agents.back().password = password;
                 into->agents.back().is_dumb = is_dumb;
             }
-        } else if (arg == LOAD_CFGFILE) {
-            if (no_recursion) {
-                jerr << "Error: tried to read a configfile while reading a configfile.\n";
-                return false;
-            }
-            Buffer_view path;
-            if (not pop(&path)) {
-                return false;
-            } else if (not file_exists(path)) {
-                jerr << "Error: Could not load configfile: File does not exist.\n You specified the"
-                     << "file:\n  " << path.c_str() << '\n';
-                return false;
-            }
+		} else if (arg == LOAD_CFGFILE) {
+			if (no_recursion) {
+				jerr << "Error: tried to read a configfile while reading a configfile.\n";
+				return false;
+			}
+			Buffer_view path;
+			if (not pop(&path)) {
+				return false;
+			} else if (not file_exists(path)) {
+				jerr << "Error: Could not load configfile: File does not exist.\n You specified the"
+					<< "file:\n  " << path.c_str() << '\n';
+				return false;
+			}
 
-            // Read and parse the configfile
-            std::vector<c_str> args;
-            std::ifstream is {path.c_str()};
-            if (not is) {
-                jerr << "Error: Invalid stream while reading configfile.\n";
-                return false;
-            }
-            int begin_file = into->_string_storage.size();
-            constexpr int space = 1024;
-            do {
-                into->_string_storage.reserve_space(space);
-                is.read(into->_string_storage.end(), into->_string_storage.space());
-                into->_string_storage.addsize(is.gcount());
-            } while (into->_string_storage.space() == 0);
-            into->_string_storage.append("", 1);
-            
-            int state = 0;
-            int last = begin_file;
-            for (int i = begin_file; i < into->_string_storage.size(); ++i) {
-                if (state == 0 or state == 4) {
-                    if (into->_string_storage[i] == ' ' or into->_string_storage[i] == '\t') {
-                        if (last < i) {
-                            into->_string_storage[i]  = '\0';
-                            args.push_back(&into->_string_storage[last]);
-                            // Handle these options differently, because they need two arguments
-                            if (std::strcmp(args.back(), ADD_AGENT) == 0 and state == 0) {
-                                state = 4;
-                            } else if (std::strcmp(args.back(), ADD_DUMMY) == 0 and state == 0) {
-                                state = 4;
-                            } else {
-                                state = 1;
-                            }
-                        } 
-                        last = i + 1;
-                    } else if (into->_string_storage[i] == '\n') {
-                        last = i + 1;
-                    } else if (into->_string_storage[i] == '#') {
-                        state = 2;
-                    } 
-                } else if (state == 1) {
-                    if (into->_string_storage[i] == '\n') {
-                        state = 0;
-                        args.push_back(&into->_string_storage[last]);
-                        into->_string_storage[i]  = '\0';
-                        last = i + 1;
-                    }
-                } else if (state == 2) {
-                    if (into->_string_storage[i] == '\n') {
-                        last = i + 1;
-                        state = 0;
-                    } 
-                } else {
-                    assert(false);
-                }
-            }
-            
-            if (not parse_cmdline(args.size(), args.data(), into, true)) {
-                jerr << "Error: ... while parsing configfile. The file is located at:\n  "
-                     << path.c_str() << '\n';
-                return false;
-            }
+			// Read and parse the configfile
+			std::vector<c_str> args;
+			std::ifstream is{ path.c_str() };
+			if (not is) {
+				jerr << "Error: Invalid stream while reading configfile.\n";
+				return false;
+			}
+			int begin_file = into->_string_storage.size();
+			constexpr int space = 1024;
+			do {
+				into->_string_storage.reserve_space(space);
+				is.read(into->_string_storage.end(), into->_string_storage.space());
+				into->_string_storage.addsize(is.gcount());
+			} while (into->_string_storage.space() == 0);
+			into->_string_storage.append("", 1);
+
+			int state = 0;
+			int last = begin_file;
+			for (int i = begin_file; i < into->_string_storage.size(); ++i) {
+				if (state == 0 or state == 4) {
+					if (into->_string_storage[i] == ' ' or into->_string_storage[i] == '\t') {
+						if (last < i) {
+							into->_string_storage[i] = '\0';
+							args.push_back(&into->_string_storage[last]);
+							// Handle these options differently, because they need two arguments
+							if (std::strcmp(args.back(), ADD_AGENT) == 0 and state == 0) {
+								state = 4;
+							} else if (std::strcmp(args.back(), ADD_DUMMY) == 0 and state == 0) {
+								state = 4;
+							} else {
+								state = 1;
+							}
+						}
+						last = i + 1;
+					} else if (into->_string_storage[i] == '\n') {
+						last = i + 1;
+					} else if (into->_string_storage[i] == '#') {
+						state = 2;
+					}
+				} else if (state == 1) {
+					if (into->_string_storage[i] == '\n') {
+						state = 0;
+						args.push_back(&into->_string_storage[last]);
+						into->_string_storage[i] = '\0';
+						last = i + 1;
+					}
+				} else if (state == 2) {
+					if (into->_string_storage[i] == '\n') {
+						last = i + 1;
+						state = 0;
+					}
+				} else {
+					assert(false);
+				}
+			}
+
+			if (not parse_cmdline(args.size(), args.data(), into, true)) {
+				jerr << "Error: ... while parsing configfile. The file is located at:\n  "
+					 << path.c_str() << '\n';
+				return false;
+			}
+		} else if(arg == STATISTICS) {
+			into->statistics = true;
+			if (not pop(&into->statistics_file)) {
+				return false;
+			}
         } else {
             jerr << "Error: Invalid option. The option was:\n  " << arg.c_str() << '\n';
             return false;
@@ -233,7 +240,19 @@ int main(int argc, c_str const* argv) {
 		return 1;
 	}
 
-	while (true) {
+	if (not options.statistics) {
+		Mothership_simple mothership;
+		if (options.dump_xml) {
+			dump_xml = std::ofstream{ options.dump_xml.c_str() };
+			init_messages(&dump_xml);
+		}
+		else {
+			init_messages();
+		}
+		Socket_context socket_context;
+		server->register_mothership(&mothership);
+		server->run_simulation();
+	} else while (true) {
 		try {
 			Mothership_statistics mothership; {
 				auto server_wrapper = std::make_unique<Server>(options);
@@ -242,8 +261,7 @@ int main(int argc, c_str const* argv) {
 				if (options.dump_xml) {
 					dump_xml = std::ofstream{ options.dump_xml.c_str() };
 					init_messages(&dump_xml);
-				}
-				else {
+				} else {
 					init_messages();
 				}
 				Socket_context socket_context;
@@ -255,7 +273,7 @@ int main(int argc, c_str const* argv) {
 			}
 			jout << "\nwriting to file... ";
 			Buffer b;
-			b.read_from_file("statistics.dat");
+			b.read_from_file(options.statistics_file.data());
 			if (b.size() == 0) {
 				b.emplace_back<Flat_list<Game_statistic, u16, u32>>();
 				b.get<Flat_list<Game_statistic, u16, u32>>(0).init(&b);
@@ -263,9 +281,9 @@ int main(int argc, c_str const* argv) {
 			auto& list = b.get<Flat_list<Game_statistic, u16, u32>>(0);
 
 			list.push_back(Buffer_view(mothership.get_statistic()), &b);
-			b.write_to_file("statistics.dat");
+			b.write_to_file(options.statistics_file.data());
 			jout << "done\n\n";
-		} catch(...) {
+		} catch (...) {
 			jerr << "Error occured, starting next simulation" << endl;
 		}
 	}

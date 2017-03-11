@@ -8,6 +8,199 @@
 namespace jup {
 
 /**
+* This is a 'flat' data structure, meaning that it goes into a Buffer together
+* with its contents. It has the following layout:
+*               +--------------------------+
+*               |                          V
+*   ... first last ... next1 element1 ...  0 elementn ...
+*         |             ^ |                ^
+*         +-------------+ +-----------...--+
+* The last-offset describes the difference between this and the address of the last next-offset
+* Iff start is 0, the list is empty
+* Iff the next-offset is 0, there are no further elements
+*
+* Else the object is invalid, and any method other than init() has undefined
+* behaviour. */
+
+
+template <typename T, typename _Offset_t = u16>
+struct Flat_list_iterator : public std::iterator<std::forward_iterator_tag, T> {
+	using Type = T;
+	using Offset_t = _Offset_t;
+
+	char* ptr;
+
+	Flat_list_iterator() { ptr = nullptr; }
+	Flat_list_iterator(char* p) { ptr = p; }
+	Flat_list_iterator(Flat_list_iterator const& orig) { ptr = orig.ptr; }
+	bool operator==(Flat_list_iterator const& rhs) const { return ptr == rhs.ptr; }
+	bool operator!=(Flat_list_iterator const& rhs) const { return ptr != rhs.ptr; }
+	T& operator*() { assert(ptr); return *(T*)(ptr + sizeof(_Offset_t)); }
+	T const& operator*() const { assert(ptr); return *(T const*)(ptr + sizeof(_Offset_t)); }
+	Flat_list_iterator& operator++() {
+		if (ptr == nullptr || *(Offset_t const*)ptr == 0) ptr = nullptr;
+		else ptr += *(Offset_t const*)ptr;
+		return *this;
+	}
+};
+
+template <typename T, typename _Offset_t = u16, typename _Offset_big_t = _Offset_t>
+struct Flat_list {
+	using Type = T;
+	using Offset_t = _Offset_t;
+	using Offset_big_t = _Offset_big_t;
+	using Iterator = Flat_list_iterator<T, _Offset_t>;
+
+	Offset_big_t first;
+	Offset_big_t last;
+
+	Flat_list() : first{ 0 } {}
+	Flat_list(Buffer* containing) { init(containing); }
+
+	void init(Buffer* containing) {
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			and (void*)this < (void*)containing->end());
+		assert(sizeof(Offset_big_t) >= sizeof(Offset_t));
+		first = 0;
+		last = 0;
+	}
+
+	int size() const {
+		int size = 0;
+		Offset_big_t next = first;
+		char* ptr = (char*)this;
+		while (next > 0) {
+			ptr += next;
+			++size;
+			next = *(Offset_t*)ptr;
+		}
+		return size;
+	}
+
+	Iterator begin() { return Iterator(first ? (char*)this + first : nullptr); }
+	Iterator end() { return Iterator(nullptr); }
+	Iterator const begin() const { return Iterator(first ? (char*)this + first : nullptr); }
+	Iterator const end()   const { return Iterator(nullptr); }
+
+	T& front() { assert(first); return *(T*)((char*)this + first + sizeof(Offset_t)); }
+	T& back() { assert(last); return *(T*)((char*)this + last + sizeof(Offset_t)); }
+	T const& front() const { assert(first); return *(T const*)((char*)this + first + sizeof(Offset_t)); }
+	T const& back() const { assert(last); return *(T const*)((char*)this + last + sizeof(Offset_t)); }
+
+	/**
+	* Return the element. Does bounds-checking.
+	*/
+	T& operator[] (int pos) {
+		assert(pos >= 0);
+		Offset_big_t next = first;
+		char* ptr = (char*)this;
+		while (pos --> 0) {
+			assert(next);
+			ptr += next;
+			next = *(Offset_t*)ptr;
+		}
+		return *(T*)(ptr + sizeof(Offset_t));
+	}
+	T const& operator[] (int pos) const {
+		assert(pos >= 0);
+		Offset_big_t next = first;
+		char* ptr = (char*)this;
+		while (pos --> 0) {
+			assert(next);
+			ptr += next;
+			next = *(Offset_t*)ptr;
+		}
+		return *(T const*)(ptr + sizeof(Offset_t));
+	}
+
+	T& emplace_back(Buffer* containing) {
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			and (void*)this() <= (void*)containing->end());
+		if (first == 0) {
+			first = containing->end() - (char*)this;
+		} else {
+			Offset_t* l = (Offset_t*)((char*)this + last);
+			l = containing->end() - (char*)&l;
+		}
+		last = containing->end() - (char*)this;
+		containing->emplace_back<Offset_t>(Offset_t(0));
+		return containing->emplace_back<T>();
+	}
+
+	/**
+	* Insert an element at the back. This operation may invalidate all pointers to
+	* the Buffer, including the one you use for this object!
+	*/
+	T& push_back(T const& obj, Buffer* containing) {
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			and (void*)this <= (void*)containing->end());
+		if (first == 0) {
+			first = containing->end() - (char*)this;
+		} else {
+			Offset_t* l = (Offset_t*)((char*)this + last);
+			*l = containing->end() - (char*)l;
+		}
+		last = containing->end() - (char*)this;
+		containing->emplace_back<Offset_t>(Offset_t(0));
+		return containing->emplace_back<T>(obj);
+	}
+
+	/**
+	* Insert an element with additional data at the back. This operation may invalidate
+	* all pointers to the Buffer, including the one you use for this object!
+	*/
+	void push_back(Buffer_view obj, Buffer* containing) {
+		assert(containing);
+		assert((void*)containing->begin() <= (void*)this
+			and (void*)this <= (void*)containing->end());
+		if (first == 0) {
+			first = containing->end() - (char*)this;
+		} else {
+			Offset_t* l = (Offset_t*)((char*)this + last);
+			*l = containing->end() - (char*)l;
+		}
+		last = containing->end() - (char*)this;
+		containing->emplace_back<Offset_t>(Offset_t(0));
+		containing->append(obj);
+	}
+
+	/**
+	* Returns the smallest index containing an equal object or -1 if no such
+	* object exists.
+	*/
+	int index(T const& obj) const {
+		int i = 0;
+		Offset_big_t next = first;
+		char* ptr = (char*)this;
+		while (next > 0) {
+			if (*(ptr + sizeof(Offset_t)) == obj) return i;
+			ptr += next;
+			++i;
+			next = *(Offset_t*)ptr;
+		}
+		return -1;
+	}
+
+	operator bool() const {
+		return first;
+	}
+
+	/** 
+	* Append another list being first element of list_buffer and its data. This operation may
+	* invalidate all pointers to the Buffer, including the one you use for this object!
+	*/
+	void append(Buffer_view list_buffer, Buffer *containing) {
+		Flat_list<T, Offset_t, Offset_big_t> const& list = *(Flat_list<T, Offset_t, Offset_big_t> const*)list_buffer.data();
+		*(Offset_t*)((char*)this + last) = containing->end() + list.first - sizeof(Flat_list);
+		last = containing->end() + list.last - sizeof(Flat_list);
+		containing->append(list_buffer.data() + sizeof(Flat_list), list_buffer.size() - sizeof(Flat_list));
+	}
+};
+
+/**
  * This is a 'flat' data structure, meaning that it goes into a Buffer together
  * with its contents. It has the following layout:
  * If start != 0:
@@ -56,6 +249,18 @@ struct Flat_array {
 			and (void*)this < (void*)containing->end());
 		narrow(start, containing->end() - (char*)this);
 		containing->append((char const*)&orig.m_size(), sizeof(Size_t) + orig.size() * sizeof(T));
+	}
+
+	template<typename L_Offset_t, typename L_Offset_big_t>
+	void init(Flat_list<T, L_Offset_t, L_Offset_big_t> const& orig, Buffer* containing) {
+		init(containing);
+		L_Offset_big_t next = orig.first;
+		char const* ptr = (char const*)&orig;
+		while (next > 0) {
+			ptr += next;
+			next = *(L_Offset_t const*)ptr;
+			push_back(*(T const*)(ptr + sizeof(L_Offset_t)), containing);
+		}
 	}
 
 	Size_t size() const {
@@ -428,198 +633,6 @@ struct Flat_ref {
 	T const* operator->() const { return ptr(); }
 	T& operator* () { return *ptr(); }
 	T const& operator* () const { return *ptr(); }	
-};
-
-/**
-* This is a 'flat' data structure, meaning that it goes into a Buffer together
-* with its contents. It has the following layout:
-*               +--------------------------+
-*               |                          V
-*   ... first last ... next1 element1 ...  0 elementn ...
-*         |             ^ |                ^
-*         +-------------+ +-----------...--+
-* The last-offset describes the difference between this and the address of the last next-offset
-* Iff start is 0, the list is empty
-* Iff the next-offset is 0, there are no further elements
-*
-* Else the object is invalid, and any method other than init() has undefined
-* behaviour. */
-
-
-template <typename T, typename _Offset_t = u16>
-struct Flat_list_iterator : public std::iterator<std::forward_iterator_tag, T> {
-	using Type = T;
-	using Offset_t = _Offset_t;
-
-	char* ptr;
-
-	Flat_list_iterator() { ptr = nullptr; }
-	Flat_list_iterator(char* p) { ptr = p; }
-	Flat_list_iterator(Flat_list_iterator const& orig) { ptr = orig.ptr; }
-	bool operator==(Flat_list_iterator const& rhs) const { return ptr == rhs.ptr; }
-	bool operator!=(Flat_list_iterator const& rhs) const { return ptr != rhs.ptr; }
-	T& operator*() { assert(ptr); return *(T*)(ptr + sizeof(_Offset_t)); }
-	T const& operator*() const { assert(ptr); return *(T const*)(ptr + sizeof(_Offset_t)); }
-	Flat_list_iterator& operator++() {
-		if (ptr == nullptr || *(Offset_t const*)ptr == 0) ptr = nullptr;
-		else ptr += *(Offset_t const*)ptr;
-		return *this;
-	}
-};
-
-template <typename T, typename _Offset_t = u16, typename _Offset_big_t = _Offset_t>
-struct Flat_list {
-	using Type = T;
-	using Offset_t = _Offset_t;
-	using Offset_big_t = _Offset_big_t;
-	using Iterator = Flat_list_iterator<T, _Offset_t>;
-
-	Offset_big_t first;
-	Offset_big_t last;
-
-	Flat_list() : first{ 0 } {}
-	Flat_list(Buffer* containing) { init(containing); }
-
-	void init(Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this < (void*)containing->end());
-		first = 0;
-		last = 0;
-	}
-
-	int size() const {
-		int size = 0;
-		Offset_t next = first;
-		char* ptr = (char*)this;
-		while (next > 0) {
-			ptr += next;
-			++size;
-			next = *(Offset_t*)ptr;
-		}
-		return size;
-	}
-
-	Iterator begin() { return Iterator(first ? (char*)this + first : nullptr); }
-	Iterator end() { return Iterator(nullptr); }
-	Iterator const begin() const { return Iterator(first ? (char*)this + first : nullptr); }
-	Iterator const end()   const { return Iterator(nullptr); }
-
-	T& front() { assert(first); return *(T*)((char*)this + first + sizeof(Offset_t)); }
-	T& back() { assert(last); return *(T*)((char*)this + last + sizeof(Offset_t)); }
-	T const& front() const { assert(first); return *(T const*)((char*)this + first + sizeof(Offset_t)); }
-	T const& back() const { assert(last); return *(T const*)((char*)this + last + sizeof(Offset_t)); }
-
-	/**
-	* Return the element. Does bounds-checking.
-	*/
-	T& operator[] (int pos) {
-		assert(pos >= 0);
-		Offset_t next = first;
-		char* ptr = (char*)this;
-		while (pos --> 0) {
-			assert(next);
-			ptr += next;
-			next = *(Offset_t*)ptr;
-		}
-		return *(T*)(ptr + sizeof(Offset_t));
-	}
-	T const& operator[] (int pos) const {
-		assert(pos >= 0);
-		Offset_t next = first;
-		char* ptr = (char*)this;
-		while (pos --> 0) {
-			assert(next);
-			ptr += next;
-			next = *(Offset_t*)ptr;
-		}
-		return *(T const*)(ptr + sizeof(Offset_t));
-	}
-
-	T& emplace_back(Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this() <= (void*)containing->end());
-		if (first == 0) {
-			first = containing->end() - (char*)this;
-		} else {
-			Offset_t* l = (Offset_t*)((char*)this + last);
-			l = containing->end() - (char*)&l;
-		}
-		last = containing->end() - (char*)this;
-		containing->emplace_back<Offset_t>(Offset_t(0));
-		return containing->emplace_back<T>();
-	}
-
-	/**
-	* Insert an element at the back. This operation may invalidate all pointers to
-	* the Buffer, including the one you use for this object!
-	*/
-	T& push_back(T const& obj, Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this <= (void*)containing->end());
-		if (first == 0) {
-			first = containing->end() - (char*)this;
-		} else {
-			Offset_t* l = (Offset_t*)((char*)this + last);
-			*l = containing->end() - (char*)l;
-		}
-		last = containing->end() - (char*)this;
-		containing->emplace_back<Offset_t>(Offset_t(0));
-		return containing->emplace_back<T>(obj);
-	}
-
-	/**
-	* Insert an element with additional data at the back. This operation may invalidate
-	* all pointers to the Buffer, including the one you use for this object!
-	*/
-	void push_back(Buffer_view obj, Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this <= (void*)containing->end());
-		if (first == 0) {
-			first = containing->end() - (char*)this;
-		} else {
-			Offset_t* l = (Offset_t*)((char*)this + last);
-			*l = containing->end() - (char*)l;
-		}
-		last = containing->end() - (char*)this;
-		containing->emplace_back<Offset_t>(Offset_t(0));
-		containing->append(obj);
-	}
-
-	/**
-	* Returns the smallest index containing an equal object or -1 if no such
-	* object exists.
-	*/
-	int index(T const& obj) const {
-		int i = 0;
-		Offset_t next = first;
-		char* ptr = (char*)this;
-		while (next > 0) {
-			if (*(ptr + sizeof(Offset_t)) == obj) return i;
-			ptr += next;
-			++i;
-			next = *(Offset_t*)ptr;
-		}
-		return -1;
-	}
-
-	operator bool() const {
-		return first;
-	}
-
-	/** 
-	* Append another list being first element of list_buffer and its data. This operation may
-	* invalidate all pointers to the Buffer, including the one you use for this object!
-	*/
-	void append(Buffer_view list_buffer, Buffer *containing) {
-		Flat_list<T, Offset_t, Offset_big_t> const& list = *(Flat_list<T, Offset_t, Offset_big_t> const*)list_buffer.data();
-		*(Offset_t*)((char*)this + last) = containing->end() + list.first - sizeof(Flat_list);
-		last = containing->end() + list.last - sizeof(Flat_list);
-		containing->append(list_buffer.data() + sizeof(Flat_list), list_buffer.size() - sizeof(Flat_list));
-	}
 };
 
 } /* end of namespace jup */

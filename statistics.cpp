@@ -10,6 +10,8 @@ void Mothership_statistics::on_sim_start(u8 agent, Simulation const& simulation,
 	if (agent == 0) {
 		// create Game_statistic, fill with Products
 		stat_buffer.emplace_back<Game_statistic>();
+		stat().seed_capital = simulation.seed_capital;
+		stat().steps = simulation.steps;
 		stat().products.init(simulation.products, &stat_buffer);
 		u8 i = 0;
 		for (Product const& p : simulation.products) {
@@ -20,6 +22,14 @@ void Mothership_statistics::on_sim_start(u8 agent, Simulation const& simulation,
 		stat().auction_jobs.init(&stat_buffer);
 		stat().priced_jobs.init(&stat_buffer);
 	}
+	// initialize roles
+	for (Role const& r : stat().roles) {
+		if (r.name == simulation.role.name) goto role_end;
+	}
+	stat().roles.push_back(simulation.role, &stat_buffer);
+	stat().roles.back().tools.init(simulation.role.tools, &stat_buffer);
+role_end:
+	return;
 }
 
 void Mothership_statistics::pre_request_action() {
@@ -32,10 +42,16 @@ void Mothership_statistics::pre_request_action(u8 agent, Perception const& perc,
 	step_buffer.append(&perc, perc_size);
 	if (agent == 0) {
 		if (perc.simulation_step == 0) {
-			// initialize shops
+			// initialize entities
+			stat().agents.init(perc.entities, &stat_buffer);
+			// initialize facilities
+			stat().charging_stations.init(perc.charging_stations, &stat_buffer);
+			stat().dump_locations.init(perc.dump_locations, &stat_buffer);
 			stat().shops.init(perc.shops, &stat_buffer);
-			u8 i = 0;
+			stat().storages.init(perc.storages, &stat_buffer);
+			stat().workshops.init(perc.workshops, &stat_buffer);
 			// assign shops to agents
+			u8 i = 0;
 			for (; i < perc.shops.size(); ++i) {
 				visit[i] = i + 1;
 			}
@@ -201,6 +217,7 @@ void statistics_main() {
 	b.read_from_file("statistics.dat");
 	auto const& list = b.get<Flat_list<Game_statistic, u16, u32>>();
 	u16 llen = list.size();
+	jout << "sample size: " << llen << endl;
 	u16* avg_pri = new u16[llen];
 	u16 i = 0;
 	for (Game_statistic const& stat : list) {
