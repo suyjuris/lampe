@@ -12,8 +12,8 @@ struct Item_stack {
 };
 
 struct Pos {
-	u8 lat;
-	u8 lon;
+	u16 lat;
+	u16 lon;
     
 	float dist (Pos p) const;
 	float dist2(Pos p) const;
@@ -22,44 +22,49 @@ struct Pos {
 
 u16 operator-(Pos const p1, Pos const p2);
 
-struct Product {
+struct Item {
 	u8 name;
-	bool assembled;
 	u16 volume;
 	Flat_array<Item_stack> consumed;
-	Flat_array<Item_stack> tools;
+	Flat_array<u8> tools;
 };
 
 struct Role {
 	u8 name;
 	u8 speed;
-	u16 max_battery;
-	u16 max_load;
+	u16 battery;
+	u16 load;
 	Flat_array<u8> tools;
 };
 
 struct Action {
 	// THESE MUST BE IN THE SAME ORDER!!!
 	enum Action_type: u8 {
-		GOTO, BUY, GIVE, RECIEVE, STORE, RETRIEVE, RETRIEVE_DELIVERED, DUMP,
-		ASSEMBLE, ASSIST_ASSEMBLE, DELIVER_JOB, CHARGE, BID_FOR_JOB, POST_JOB,
-		CALL_BREAKDOWN_SERVICE, CONTINUE, SKIP, ABORT, GOTO1, GOTO2, POST_JOB1,
-        POST_JOB2, NO_ACTION
+		GOTO, GIVE, RECIEVE, STORE, RETRIEVE, RETRIEVE_DELIVERED,
+		ASSEMBLE, ASSIST_ASSEMBLE, BUY, DELIVER_JOB, BID_FOR_JOB,
+		POST_JOB, DUMP, CHARGE, RECHARGE, CONTINUE, SKIP, ABORT,
+		UNKNOWN_ACTION, RANDOM_FAIL, NO_ACTION, GATHER, GOTO0, GOTO1, GOTO2
 	};
 	static constexpr char const* action_names[] = {
-		"goto", "buy", "give", "recieve", "store", "retrieve",
-		"retrieve_delivered", "dump", "assemble", "assist_assemble",
-		"deliver_job", "charge", "bid_for_job", "post_job",
-		"call_breakdown_service", "continue", "skip", "abort", "noAction"
+		"goto", "give", "receive", "store", "retrieve", "retrieve_delivered",
+		"assemble", "assist_assemble", "buy", "deliver_job", "bid_for_job",
+		"post_job", "dump", "charge", "recharge", "continue", "skip", "abort",
+		"unknownAction", "randomFail", "noAction", "gather"
     };
+	static constexpr char const* action_args[] = {
+		"!", "si", "", "i", "i", "i",
+		"s", "s", "i", "S", "SU",
+		"UusI", "i", "", "", "", "", "",
+		"", "", "", "", "", "s", "p"
+	};
 	enum Action_result: u8 {
 		SUCCESSFUL = 0, /* guarantee this, so that users may assert */
 		FAILED_LOCATION, FAILED_UNKNOWN_ITEM, FAILED_UNKNOWN_AGENT,
 	    FAILED_UNKNOWN_JOB, FAILED_UNKNOWN_FACILITY, FAILED_NO_ROUTE,
 	    FAILED_ITEM_AMOUNT, FAILED_CAPACITY, FAILED_WRONG_FACILITY,
 	    FAILED_TOOLS, FAILED_ITEM_TYPE, FAILED_JOB_STATUS, FAILED_JOB_TYPE,
-		FAILED_COUNTERPART, FAILED_WRONG_PARAM, FAILED_UNKNOWN_ERROR,
-        SUCCESSFUL_PARTIAL, USELESS, FAILED_RANDOM, TODO_REMOVEME
+		FAILED_COUNTERPART, FAILED_WRONG_PARAM, FAILED,
+        SUCCESSFUL_PARTIAL, USELESS
 	};
 	static constexpr char const* action_result_names[] = {
 		"successful", "failed_location", "failed_unknown_item",
@@ -67,8 +72,8 @@ struct Action {
 	    "failed_no_route", "failed_item_amount", "failed_capacity",
 	    "failed_wrong_facility", "failed_tools", "failed_item_type",
 	    "failed_job_status", "failed_job_type", "failed_counterpart",
-	    "failed_wrong_param", "failed_unknown_error", "successful_partial",
-	    "useless", "failed_random", "failed_counterpat",
+	    "failed_wrong_param", "failed", "successful_partial",
+	    "useless"
 	};
 	
 	static u8 get_id(char const* str) {
@@ -83,10 +88,9 @@ struct Action {
 	static char const* get_name(int id) {
 		constexpr int count = sizeof(action_names) / sizeof(action_names[0]);
         switch (id) {
-        case GOTO1:
+		case GOTO0:
+		case GOTO1:
         case GOTO2: id = GOTO; break;
-        case POST_JOB1:
-        case POST_JOB2: id = POST_JOB; break;
         default: break;
         };
 		assert(0 <= id and id < count);
@@ -117,22 +121,23 @@ struct Action {
 };
 
 
-struct Action_Goto1: Action {
-	Action_Goto1(u8 facility):
-		Action{GOTO1}, facility{facility} {}
-	u8 facility;
+struct Action_Goto0: Action {
+	Action_Goto0():
+		Action{GOTO0} {}
 };
 
-struct Action_Goto2: Action {
-	Action_Goto2(Pos pos):
+struct Action_Goto1 : Action {
+	Action_Goto1(u8 fac):
+		Action{GOTO1}, fac{fac} {}
+	u8 fac;
+};
+
+struct Action_Goto2 : Action {
+	Action_Goto2(Pos pos) :
 		Action{GOTO2}, pos{pos} {}
+	Action_Goto2(u16 lat, u16 lon):
+		Action{GOTO2}, pos{lat, lon} {}
 	Pos pos;
-};
-
-struct Action_Buy: Action {
-	Action_Buy(Item_stack item):
-		Action{BUY}, item{item} {}
-	Item_stack item;
 };
 
 struct Action_Give: Action {
@@ -164,12 +169,6 @@ struct Action_Retrieve_delivered: Action {
 	Item_stack item;
 };
 
-struct Action_Dump: Action {
-	Action_Dump(Item_stack item):
-		Action{DUMP}, item{item} {}
-	Item_stack item;
-};
-
 struct Action_Assemble: Action {
 	Action_Assemble(u8 item):
 		Action{ASSEMBLE}, item{item} {}
@@ -182,46 +181,47 @@ struct Action_Assist_assemble: Action {
 	u8 assembler;
 };
 
+struct Action_Buy : Action {
+	Action_Buy(Item_stack item):
+		Action{BUY}, item{item} {}
+	Item_stack item;
+};
+
 struct Action_Deliver_job: Action {
 	Action_Deliver_job(u16 job):
 		Action{DELIVER_JOB}, job{job} {}
 	u16 job;
 };
 
-struct Action_Charge: Action {
-	Action_Charge(): Action{CHARGE} {}
-};
-
 struct Action_Bid_for_job: Action {
-	Action_Bid_for_job(u16 job, u32 price):
-		Action{BID_FOR_JOB}, job{job}, price{price} {}
+	Action_Bid_for_job(u16 job, u32 bid):
+		Action{BID_FOR_JOB}, job{job}, bid{bid} {}
 	u16 job;
-	u32 price;
+	u32 bid;
 };
 
-struct Action_Post_job1: Action {
-	Action_Post_job1(u32 max_price, u16 fine, u16 active_steps,
-					 u16 auction_steps, u8 storage):
-		Action{POST_JOB1}, max_price{max_price}, fine{fine},
-		active_steps{active_steps}, auction_steps{auction_steps},
+struct Action_Post_job: Action {
+	Action_Post_job(u32 reward, u16 duration, u8 storage):
+		Action{POST_JOB}, reward{reward}, duration{duration},
 		storage{storage} {}
-	u32 max_price, fine, active_steps, auction_steps;
+	u32 reward;
+	u16 duration;
 	u8 storage;
 	Flat_array<Item_stack> items;
 };
 
-struct Action_Post_job2: Action {
-	Action_Post_job2(u32 price, u16 active_steps, u8 storage):
-		Action{POST_JOB2}, price{price}, active_steps{active_steps},
-		storage{storage} {}
-	u32 price;
-    u16 active_steps;
-	u8 storage;
-	Flat_array<Item_stack> items;
+struct Action_Dump : Action {
+	Action_Dump(Item_stack item):
+		Action{DUMP}, item{item} {}
+	Item_stack item;
 };
 
-struct Action_Call_breakdown_service: Action {
-	Action_Call_breakdown_service(): Action{CALL_BREAKDOWN_SERVICE} {}
+struct Action_Charge : Action {
+	Action_Charge() : Action{CHARGE} {}
+};
+
+struct Action_Recharge: Action {
+	Action_Recharge(): Action{RECHARGE} {}
 };
 
 struct Action_Continue: Action {
@@ -236,32 +236,18 @@ struct Action_Abort: Action {
 	Action_Abort(): Action{ABORT} {}
 };
 
+struct Action_Gather: Action {
+	Action_Gather(): Action{GATHER} {}
+};
+
 struct Simulation {
 	u8 id;
+	u8 map;
 	u8 team;
 	u16 seed_capital;
 	u16 steps;
 	Role role;
-	Flat_array<Product> products;
-};
-
-struct Self {
-	u16 charge;
-	u16 load;
-	u8 last_action;
-	u8 last_action_result;
-	Pos pos;
-	u8 in_facility; /* 0 if not in a facility */
-	u8 f_position;
-	u8 route_length;
-	Flat_array<Item_stack> items;
-	Flat_array<Pos> route;
-};
-
-struct Team {
-	u16 money;
-	Flat_array<u16> jobs_taken;
-	Flat_array<u16> jobs_posted;
+	Flat_array<Item> items;
 };
 
 struct Entity {
@@ -271,6 +257,14 @@ struct Entity {
 	u8 role;
 };
 
+struct Self : Entity {
+	u16 charge;
+	u16 load;
+	u8 last_action;
+	u8 last_action_result;
+	Flat_array<Item_stack> items;
+};
+
 struct Facility {
 	u8 name;
 	Pos pos;
@@ -278,21 +272,17 @@ struct Facility {
 
 struct Charging_station : Facility {
 	u8 rate;
-	u32 price;
-	u8 slots;
-	u8 q_size; // -1 if <info> not visible
 };
 
-struct Dump_location : Facility {
-	u32 price;
+struct Dump : Facility {
 };
 
 struct Shop_item : Item_stack {
 	u16 cost;
-	u8 restock;
 };
 
 struct Shop : Facility {
+	u8 restock;
 	Flat_array<Shop_item> items;
 };
 
@@ -301,51 +291,56 @@ struct Storage_item : Item_stack {
 };
 
 struct Storage : Facility {
-	u32 price;
 	u16 total_capacity;
 	u16 used_capacity;
 	Flat_array<Storage_item> items;
 };
 
 struct Workshop : Facility {
-	u32 price;
-};
-
-struct Job_item: Item_stack {
-	u8 delivered;
 };
 
 struct Job {
 	u16 id;
 	u8 storage;
-	u16 begin;
+	u16 start;
 	u16 end;
-	Flat_array<Job_item> items;
+	u32 reward;
+	Flat_array<Item_stack> required;
 };
 
-struct Job_auction : Job {
+struct Auction : Job {
+	u16 auction_time;
 	u32 fine;
 	u32 max_bid;
 };
 
-struct Job_priced : Job {
-	u32 reward;
+struct Mission : Auction {
 };
 
-struct Perception {
+struct Posted : Job {
+};
+
+struct Resource_node : Facility {
+	u8 resource;
+};
+
+struct Percept {
 	u64 deadline;
 	u16 id;
 	u16 simulation_step;
+	s32 team_money;
 	Self self;
-	Team team;
 	Flat_array<Entity> entities;
 	Flat_array<Charging_station> charging_stations;
-	Flat_array<Dump_location> dump_locations;
+	Flat_array<Dump> dumps;
 	Flat_array<Shop> shops;
 	Flat_array<Storage> storages;
 	Flat_array<Workshop> workshops;
-	Flat_array<Job_auction> auction_jobs;
-	Flat_array<Job_priced> priced_jobs;
+	Flat_array<Resource_node> resource_nodes;
+	Flat_array<Auction> auctions;
+	Flat_array<Job> jobs;
+	Flat_array<Mission> missions;
+	Flat_array<Posted> posteds;
 };
 
 } /* end of namespace jup */

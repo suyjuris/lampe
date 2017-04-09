@@ -1,26 +1,29 @@
 #include <cmath>
 #include "statistics.hpp"
+#include "debug.hpp"
 
 namespace jup {
 
 void Mothership_statistics::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
 	sim_offsets[agent] = general_buffer.size();
 	general_buffer.append(&simulation, sim_size);
+	visit[agent] = false;
+#if 0
 	visit[agent_count++] = false;
 	if (agent == 0) {
 		// create Game_statistic, fill with Products
 		stat_buffer.emplace_back<Game_statistic>();
 		stat().seed_capital = simulation.seed_capital;
 		stat().steps = simulation.steps;
-		stat().products.init(simulation.products, &stat_buffer);
+		stat().items.init(simulation.items, &stat_buffer);
 		u8 i = 0;
-		for (Product const& p : simulation.products) {
-			stat().products[i].consumed.init(p.consumed, &stat_buffer);
-			stat().products[i].tools.init(p.tools, &stat_buffer);
+		for (Item const& p : simulation.items) {
+			stat().items[i].consumed.init(p.consumed, &stat_buffer);
+			stat().items[i].tools.init(p.tools, &stat_buffer);
 			++i;
 		}
-		stat().auction_jobs.init(&stat_buffer);
-		stat().priced_jobs.init(&stat_buffer);
+		stat().auctions.init(&stat_buffer);
+		stat().jobs.init(&stat_buffer);
 	}
 	// initialize roles
 	for (Role const& r : stat().roles) {
@@ -29,24 +32,27 @@ void Mothership_statistics::on_sim_start(u8 agent, Simulation const& simulation,
 	stat().roles.push_back(simulation.role, &stat_buffer);
 	stat().roles.back().tools.init(simulation.role.tools, &stat_buffer);
 role_end:
+#endif
 	return;
 }
 
 void Mothership_statistics::pre_request_action() {
-	assert(agent_count == 16);
+	//assert(agent_count == 16);
 	step_buffer.reset();
 }
 
-void Mothership_statistics::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
+void Mothership_statistics::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
 	perc_offsets[agent] = step_buffer.size();
 	step_buffer.append(&perc, perc_size);
+	return;
+#if 0
 	if (agent == 0) {
 		if (perc.simulation_step == 0) {
 			// initialize entities
 			stat().agents.init(perc.entities, &stat_buffer);
 			// initialize facilities
 			stat().charging_stations.init(perc.charging_stations, &stat_buffer);
-			stat().dump_locations.init(perc.dump_locations, &stat_buffer);
+			stat().dumps.init(perc.dumps, &stat_buffer);
 			stat().shops.init(perc.shops, &stat_buffer);
 			stat().storages.init(perc.storages, &stat_buffer);
 			stat().workshops.init(perc.workshops, &stat_buffer);
@@ -74,16 +80,16 @@ void Mothership_statistics::pre_request_action(u8 agent, Perception const& perc,
 		}
 	assign_end:
 		// write new jobs into buffer
-		for (Job_auction const& j : perc.auction_jobs) {
-			if (j.begin == perc.simulation_step - 1) {
-				Job_auction& k = stat().auction_jobs.push_back(j, &stat_buffer);
-				k.items.init(j.items, &stat_buffer);
+		for (Auction const& j : perc.auctions) {
+			if (j.start == perc.simulation_step - 1) {
+				Auction& k = stat().auctions.push_back(j, &stat_buffer);
+				k.required.init(j.required, &stat_buffer);
 			}
 		}
-		for (Job_priced const& j : perc.priced_jobs) {
-			if (j.begin == perc.simulation_step - 1) {
-				Job_priced& k = stat().priced_jobs.push_back(j, &stat_buffer);
-				k.items.init(j.items, &stat_buffer);
+		for (Job const& j : perc.jobs) {
+			if (j.start == perc.simulation_step - 1) {
+				Job& k = stat().jobs.push_back(j, &stat_buffer);
+				k.required.init(j.required, &stat_buffer);
 			}
 		}
 		if (perc.simulation_step >= sim().steps - 1) {
@@ -103,18 +109,35 @@ void Mothership_statistics::pre_request_action(u8 agent, Perception const& perc,
 			visit[agent] = 0;
 		}
 	}
+#endif
 }
 
 void Mothership_statistics::on_request_action() {
 }
 
 void Mothership_statistics::post_request_action(u8 agent, Buffer* into) {
+#if 1
+	if (perc(agent).resource_nodes.size() > 0) {
+		auto spos = perc(agent).self.pos;
+		auto rpos = perc(agent).resource_nodes[0].pos;
+		//jout << (u16)spos.lat << "|" << (u16)spos.lon << "-" << (u16)rpos.lat << "|" << (u16)rpos.lon << endl;
+		if ((abs(spos.lat - rpos.lat) <= 5 && abs(spos.lon - rpos.lon) <= 5)) {
+			into->emplace_back<Action_Gather>();
+		} else {
+			into->emplace_back<Action_Goto2>(rpos);
+		}
+	} else {
+		into->emplace_back<Action_Skip>();
+	}
+	return;
+#else
 	// move agents to assigned shops
 	if (visit[agent] > 0) {
 		into->emplace_back<Action_Goto1>(perc().shops[visit[agent] - 1].name);
 	} else {
-		into->emplace_back<Action_Abort>();
+		into->emplace_back<Action_Skip>();
 	}
+#endif
 }
 
 /**
@@ -223,7 +246,7 @@ void statistics_main() {
 	for (Game_statistic const& stat : list) {
 		u32 apsum = 0;
 		u8 bp = 0;
-		for (Product const& p : stat.products) {
+		for (Item const& p : stat.items) {
 			u8 name = p.name;
 			u8 as = 0;
 			u32 psum = 0;

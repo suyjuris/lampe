@@ -7,7 +7,7 @@
 #include <list>
 #include "objects.hpp"
 void assert(bool expr) {
-	if (!expr) throw(std::list<std::pair<int,jup::Dump_location>>());
+	if (!expr) throw(std::list<std::pair<int,jup::Dump>>());
 }
 #endif
 

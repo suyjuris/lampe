@@ -11,7 +11,7 @@
 namespace jup {
 
 constexpr u8 agents_per_team = 16;
-
+#if 0
 struct Requirement {
     enum Type : u8 {
         GET_ITEM, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, VISIT, NOTHING
@@ -57,7 +57,7 @@ struct Reserved_item {
 struct Mothership_simple: Mothership {
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
     void pre_request_action() override;
-    void pre_request_action(u8 agent, Perception const& perc, int perc_size) override;
+    void pre_request_action(u8 agent, Percept const& perc, int perc_size) override;
     void on_request_action() override;
     void post_request_action(u8 agent, Buffer* into) override;
 
@@ -87,8 +87,8 @@ struct Mothership_simple: Mothership {
 
     auto& job() { return general_buffer.get<Job_execution>(jobexe_offset); }
     auto& sim(int i = 0) { return general_buffer.get<Simulation>(sim_offsets[i]); }
-    auto& perc(int i = 0) { return step_buffer.get<Perception>(perc_offsets[i]); }
-    auto& old_perc(int i = 0) { return old_step_buffer.get<Perception>(old_perc_offsets[i]); }
+    auto& perc(int i = 0) { return step_buffer.get<Percept>(perc_offsets[i]); }
+    auto& old_perc(int i = 0) { return old_step_buffer.get<Percept>(old_perc_offsets[i]); }
 
     int find_cheap(u8 id) {
         for (size_t i = 0; i < cheaps.size(); ++i) {
@@ -196,8 +196,8 @@ struct Situation {
 	Flat_array<Charging_station_dynamic> charging_stations;
 	Flat_array<Shop_dynamic> shops;
 	Flat_array<Storage_dynamic> storages;
-	Flat_array<Job_auction> auction_jobs;
-	Flat_array<Job_priced> priced_jobs;
+	Flat_array<Auction> auctions;
+	Flat_array<Job_priced> jobs;
 
     Flat_array<Task> goals;
     
@@ -214,9 +214,9 @@ struct World {
 	Entity_static opponents[agents_per_team];
 
 	Flat_array<Role> roles;
-	Flat_array<Product> products;
+	Flat_array<Item> items;
 	Flat_array<Charging_station_static> charging_stations;
-	Flat_array<Dump_location> dump_locations;
+	Flat_array<Dump> dumps;
 	Flat_array<Shop_static> shops;
 	Flat_array<Storage_static> storages;
 	Flat_array<Workshop> workshops;
@@ -233,7 +233,7 @@ struct Tree {
 struct Mothership_complex : Mothership {    
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
 	void pre_request_action() override;
-	void pre_request_action(u8 agent, Perception const& perc, int perc_size) override;
+	void pre_request_action(u8 agent, Percept const& perc, int perc_size) override;
 	void on_request_action() override;
 	void post_request_action(u8 agent, Buffer* into) override;
 
@@ -297,9 +297,9 @@ inline T * Mothership_complex::get_by_id<T>(u8 id) {\
 }
 
 gbi(Role, world().roles)
-gbi(Product, world().products)
+gbi(Item, world().items)
 gbi(Charging_station_static, world().charging_stations)
-gbi(Dump_location, world().dump_locations)
+gbi(Dump, world().dumps)
 gbi(Shop_static, world().shops)
 gbi(Workshop, world().workshops)
 
@@ -309,12 +309,12 @@ template <>
 inline Facility* Mothership_complex::get_by_id<Facility>(u8 id) {
     Facility * fac;
     fac = get_by_id<Charging_station_static>(id); if (fac) return fac;
-    fac = get_by_id<Dump_location>(id);           if (fac) return fac;
+    fac = get_by_id<Dump>(id);           if (fac) return fac;
     fac = get_by_id<Shop_static>(id);             if (fac) return fac;
     fac = get_by_id<Workshop>(id);                if (fac) return fac;
 	return nullptr;
 }
 
 void internal_simulation_step(World const& world, Situation& sit);
-
+#endif
 } /* end of namespace jup */

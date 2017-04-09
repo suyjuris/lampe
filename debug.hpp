@@ -2,7 +2,7 @@
 
 #include "Buffer.hpp"
 #include "objects.hpp"
-#include "agent.hpp"
+//#include "agent.hpp"
 #include "messages.hpp"
 
 namespace jup {
@@ -128,30 +128,30 @@ extern Debug_ostream jdbg;
 
 oP(Item_stack, item, amount)
 op(Pos, lat, lon)
-oP(Product, name, assembled, volume, consumed, tools)
-//op(Role, name, speed, max_battery, max_load, tools)
-oP(Role, name, speed, max_battery, max_load)
+oP(Item, name, volume, consumed, tools)
+//op(Role, name, speed, battery, load, tools)
+oP(Role, name, speed, battery, load)
 op(Action, type, get_name(obj.type))
-op(Simulation, id, team, seed_capital, steps, role, products)
-op(Self, charge, load, last_action, last_action_result, pos, in_facility,
-	f_position, route_length, items, route)
-op(Team, money, jobs_taken, jobs_posted)
+op(Simulation, id, map, team, seed_capital, steps, role, items)
+oP(Self, name, team, pos, role, charge, load, last_action, last_action_result)
 oP(Entity, name, team, pos, role)
 oP(Facility, name, pos)
-oP(Charging_station, name, pos, rate, price, slots, q_size)
-oP(Dump_location, name, pos, price)
-op(Shop_item, item, amount, cost, restock)
-oP(Shop, name, pos, items)
+oP(Charging_station, name, pos, rate)
+oP(Dump, name, pos)
+op(Shop_item, item, amount, cost)
+oP(Shop, name, pos, restock, items)
 op(Storage_item, item, amount, delivered)
-oP(Storage, name, pos, price, total_capacity, used_capacity, items)
-oP(Workshop, name, pos, price)
-op(Job_item, item, amount, delivered)
-oP(Job, id, storage, begin, end, items)
-oP(Job_auction, id, storage, begin, end, items, fine, max_bid)
-oP(Job_priced, id, storage, begin, end, items, reward)
-op(Perception, deadline, id, simulation_step, self, team, entities,
-	charging_stations, shops, storages, workshops, auction_jobs, priced_jobs)
-op(Requirement, type, dependency, item, where, is_tool, state, id)
+oP(Storage, name, pos, total_capacity, used_capacity, items)
+oP(Workshop, name, pos)
+oP(Job, id, storage, start, end, required, reward)
+oP(Auction, id, storage, start, end, required, reward, fine, max_bid)
+oP(Mission, id, storage, start, end, required, reward, fine, max_bid)
+oP(Posted, id, storage, start, end, required, reward)
+oP(Resource_node, name, resource, pos)
+op(Percept, deadline, id, simulation_step, team_money, self, entities,
+	charging_stations, dumps, shops, storages, workshops, auctions,
+	missions, jobs, resource_nodes)
+/*op(Requirement, type, dependency, item, where, is_tool, state, id)
 oP(Job_execution, job, cost, needed)
 op(Cheap_item, item, price, shop)
 op(Deliver_item, item, storage, job)
@@ -171,10 +171,10 @@ oP(Agent_static, name, role)
 op(Agent_dynamic, pos, charge, load, last_action, last_action_result,
 	in_facility, f_position, route_length, task, last_go, items, route)
 op(Situation, deadline, simulation_step, team, agents, opponents,
-	charging_stations, shops, storages, auction_jobs, priced_jobs)
+	charging_stations, shops, storages, auctions, jobs)
 op(World, simulation_id, team_id, opponent_team, seed_capital,
-	max_steps, agents, opponents, roles, products, charging_stations,
-	dump_locations, shops, storages, workshops)
+	max_steps, agents, opponents, roles, items, charging_stations,
+	dumps, shops, storages, workshops)*/
 
 
 #undef op

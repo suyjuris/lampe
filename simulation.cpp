@@ -4,14 +4,14 @@ namespace jup {
 
 Internal_simulation::Internal_simulation(Game_statistic const& stat) {
 	sim_buffer.emplace_back<Simulation_information>();
-	d().products.init(stat.products, &sim_buffer);
+	d().items.init(stat.items, &sim_buffer);
 	d().roles.init(stat.roles, &sim_buffer);
 	u8 i = 0;
 	for (Role const& r : stat.roles) {
 		d().roles[i++].tools.init(r.tools, &sim_buffer);
 	}
 	d().charging_stations.init(stat.charging_stations, &sim_buffer);
-	d().dump_locations.init(stat.dump_locations, &sim_buffer);
+	d().dump_locations.init(stat.dumps, &sim_buffer);
 	d().shops.init(stat.shops, &sim_buffer);
 	i = 0;
 	for (Shop const& s : stat.shops) {
@@ -19,15 +19,15 @@ Internal_simulation::Internal_simulation(Game_statistic const& stat) {
 	}
 	d().storages.init(stat.storages, &sim_buffer);
 	d().workshops.init(stat.workshops, &sim_buffer);
-	d().auction_jobs.init(stat.auction_jobs, &sim_buffer);
+	d().auction_jobs.init(stat.auctions, &sim_buffer);
 	i = 0;
-	for (Job_auction const& j : stat.auction_jobs) {
-		d().auction_jobs[i++].items.init(j.items, &sim_buffer);
+	for (Auction const& j : stat.auctions) {
+		d().auction_jobs[i++].required.init(j.required, &sim_buffer);
 	}
-	d().priced_jobs.init(stat.priced_jobs, &sim_buffer);
+	d().priced_jobs.init(stat.jobs, &sim_buffer);
 	i = 0;
-	for (Job_auction const& j : stat.auction_jobs) {
-		d().auction_jobs[i++].items.init(j.items, &sim_buffer);
+	for (Job const& j : stat.jobs) {
+		d().auction_jobs[i++].required.init(j.required, &sim_buffer);
 	}
 	d().agents.init(&sim_buffer);
 	for (Entity const& e : stat.agents) {
@@ -40,7 +40,7 @@ Internal_simulation::Internal_simulation(Game_statistic const& stat) {
 			++i;
 		}
 		Role const& r = d().roles[a.role_index];
-		a.charge = r.max_battery;
+		a.charge = r.battery;
 		a.load = 0;
 		a.team = e.team;
 	}
@@ -52,7 +52,7 @@ void Internal_simulation::on_sim_start(Buffer* into) {
 		Simulation& sim = into->emplace_back<Simulation>();
 		Agent const& a = d().agents[i];
 		sim.id = a.name;
-		sim.products.init(d().products, into);
+		sim.items.init(d().items, into);
 		sim.role = d().roles[a.role_index];
 		sim.role.tools.init(d().roles[a.role_index].tools, into);
 		sim.seed_capital = d().seed_capital;
@@ -65,13 +65,13 @@ void Internal_simulation::on_sim_start(Buffer* into) {
 void Internal_simulation::pre_request_action(Buffer* into) {
 	++step;
 	for (u8 i = 0; i < agent_count; ++i) {
-		Perception& perc = into->emplace_back<Perception>();
+		Percept& perc = into->emplace_back<Percept>();
 		perc.id = i;
 		perc.simulation_step = step;
 		//perc.auction_jobs = ...
 		//perc.priced_jobs = ...
 		perc.charging_stations.init(d().charging_stations, into);
-		perc.dump_locations.init(d().dump_locations, into);
+		perc.dumps.init(d().dump_locations, into);
 		perc.shops.init(d().shops, into);
 		u8 j = 0;
 		for (Shop const& s : d().shops) {
@@ -94,8 +94,6 @@ void Internal_simulation::pre_request_action(Buffer* into) {
 		}
 		Agent const& a = d().agents[i];
 		perc.self = a;
-		perc.self.route.init(a.route, into);
-		// perc.team = ...
 	}
 }
 

@@ -15,15 +15,15 @@ struct Agent : Self {
 
 class Internal_simulation {
 	struct Simulation_information {
-		Flat_array<Product> products;
+		Flat_array<Item> items;
 		Flat_array<Role> roles;
 		Flat_array<Charging_station> charging_stations;
-		Flat_array<Dump_location> dump_locations;
+		Flat_array<Dump> dump_locations;
 		Flat_array<Shop> shops;
 		Flat_array<Storage> storages; // items will stay uninitialized
 		Flat_array<Workshop> workshops;
-		Flat_array<Job_auction> auction_jobs;
-		Flat_array<Job_priced> priced_jobs;
+		Flat_array<Auction> auction_jobs;
+		Flat_array<Job> priced_jobs;
 		Flat_array<Agent> agents;
 		u16 seed_capital;
 		u16 steps;

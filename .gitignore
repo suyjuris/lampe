@@ -17,8 +17,9 @@ Debug/*
 **/*.sln
 **/*.vcxproj
 **/*.vcxproj.*
+**/*.log
 .vs/*
-sim/*
+massim/*
 *.cfg
 out
 doku/*

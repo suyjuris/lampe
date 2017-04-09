@@ -88,7 +88,7 @@ struct Message_Request_Action: Message_Server2Client {
     static constexpr int Type_value = REQUEST_ACTION;
 	Message_Request_Action() { type = Type_value; }
 
-	Perception perception;
+	Percept perception;
 };
 
 // Some constants for distance calculations

@@ -44,7 +44,7 @@ struct Server_options {
 struct Mothership {
     virtual void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) = 0;
     virtual void pre_request_action() = 0;
-    virtual void pre_request_action(u8 agent, Perception const& perc, int perc_size) = 0;
+    virtual void pre_request_action(u8 agent, Percept const& perc, int perc_size) = 0;
     virtual void on_request_action() = 0;
     virtual void post_request_action(u8 agent, Buffer* into) = 0;
     virtual ~Mothership() {};

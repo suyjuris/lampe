@@ -1,4 +1,4 @@
-
+#if 0
 #include "agent.hpp"
 
 #include <cmath>
@@ -64,7 +64,7 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
 
         for (Deliver_item i: delivs) {
             bool job_exists = false;
-            for (Job_priced const& job: perc().priced_jobs) {
+            for (Job_priced const& job: perc().jobs) {
                 if (job.id == i.job) job_exists = true;
             }
             if (i.item.item == item.item and not job_exists) {
@@ -101,7 +101,7 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
             }
         }
 
-        for (Product const& i: sim().products) {
+        for (Item const& i: sim().items) {
             if (i.name == item.item and i.assembled) {
                 u8 dep = exe().needed.size();
                 exe().cost += perc().workshops[workshop].price * item.amount;
@@ -147,7 +147,7 @@ bool Mothership_simple::get_execution_plan(Job const& job, Buffer* into) {
 
     exe().job = job.id;
     exe().needed.init(into);
-    for (Job_item i: job.items) {
+    for (Job_item i: job.required) {
         if (not add_req({i.item, (u8)(i.amount - i.delivered)}, 0xff, false, 0))
             return false;
     }
@@ -174,7 +174,7 @@ void Mothership_simple::pre_request_action() {
     step_buffer.reset();
 }
 
-void Mothership_simple::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
+void Mothership_simple::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
     perc_offsets[agent] = step_buffer.size();
     step_buffer.append(&perc, perc_size);
 
@@ -193,7 +193,7 @@ void Mothership_simple::pre_request_action(u8 agent, Perception const& perc, int
                 assert(0 <= count and count < 256);
                 if (count > 0) {
                     u8 storage = 0;
-                    for (Job& k: old_perc().priced_jobs) {
+                    for (Job& k: old_perc().jobs) {
                         if (k.id == job().job) {
                             storage = k.storage;
                             break;
@@ -252,7 +252,7 @@ void Mothership_simple::on_request_action() {
     
     bool no_job_flag = true;
     if (jobexe_offset != 0) {
-        for (auto const& j: perc().priced_jobs) {
+        for (auto const& j: perc().jobs) {
             if (j.id == job().job) {
                 no_job_flag = false;
                 break;
@@ -291,8 +291,8 @@ void Mothership_simple::on_request_action() {
             }
         }
         float max_val = 0; int index = -1;
-        for (int i = 0; i < perc().priced_jobs.size(); ++i) {
-            Job_priced const& jjob = perc().priced_jobs[i];
+        for (int i = 0; i < perc().jobs.size(); ++i) {
+            Job_priced const& jjob = perc().jobs[i];
             
             float val;
             jobexe_offset = general_buffer.size();
@@ -312,7 +312,7 @@ void Mothership_simple::on_request_action() {
         }
         if (index != -1) {
             jobexe_offset = general_buffer.size();
-            if (not get_execution_plan(perc().priced_jobs[index], &general_buffer)) {
+            if (not get_execution_plan(perc().jobs[index], &general_buffer)) {
                 general_buffer.resize(jobexe_offset);
                 jobexe_offset = 0;
                 return;
@@ -321,7 +321,7 @@ void Mothership_simple::on_request_action() {
                 job().needed[i].id = i;
             }
             jout << "Taking job "
-                 << get_string_from_id(perc().priced_jobs[index].id).c_str() << '\n';
+                 << get_string_from_id(perc().jobs[index].id).c_str() << '\n';
             jdbg < job(),0;
             old_job = job().job;
         } else {
@@ -458,14 +458,14 @@ void Mothership_simple::on_request_action() {
                         if (req.is_tool and (not sim(j).role.tools.count(req.item.item)
                             or sim(j).role.speed == 1)) continue;
                     
-                        Product const* p = nullptr;
-                        for (auto const& j: sim().products) {
+                        Item const* p = nullptr;
+                        for (auto const& j: sim().items) {
                             if (j.name == req.item.item) {
                                 p = &j; break;
                             }
                         }
                         assert(p);
-                        int max_count = p->volume > 0 ? (sim(j).role.max_load -
+                        int max_count = p->volume > 0 ? (sim(j).role.load -
                                         perc(j).self.load) / p->volume : 83726;
                         if (max_count == 0) {
                             continue;
@@ -493,8 +493,8 @@ void Mothership_simple::on_request_action() {
             bool assigned = false;
             for (u8 j: Agent_iter{}) {
                 if (agent_task[j].dependency == i and agent_task[j].state >= 2) {
-                    Product const* p = nullptr;
-                    for (auto const& j: sim().products) {
+                    Item const* p = nullptr;
+                    for (auto const& j: sim().items) {
                         if (j.name == req.item.item) {
                             p = &j; break;
                         }
@@ -506,7 +506,7 @@ void Mothership_simple::on_request_action() {
                         continue;
                     }
                     
-                    int max_count = p->volume > 0 ? (sim(j).role.max_load
+                    int max_count = p->volume > 0 ? (sim(j).role.load
                             - perc(j).self.load) / p->volume : 83726;
                     if (max_count >= req.item.amount) {
                         agent_task[j] = req;
@@ -530,14 +530,14 @@ void Mothership_simple::on_request_action() {
                     if (agent_task[j].type == Requirement::NOTHING) {
                         if (req.is_tool and (not sim(j).role.tools.count(req.item.item)
                                 or sim(j).role.speed == 1)) continue;
-                        Product const* p = nullptr;
-                        for (auto const& j: sim().products) {
+                        Item const* p = nullptr;
+                        for (auto const& j: sim().items) {
                             if (j.name == req.item.item) {
                                 p = &j; break;
                             }
                         }
                         assert(p);
-                        int max_count = p->volume > 0 ? (sim(j).role.max_load
+                        int max_count = p->volume > 0 ? (sim(j).role.load
                                         - perc(j).self.load) / p->volume : 83726;
                         
                         if (max_count >= req.item.amount) {
@@ -684,7 +684,7 @@ bool Mothership_simple::agent_goto(u8 where, u8 agent, Buffer* into) {
     }
     
 	for (Charging_station const& i : perc().charging_stations) {
-		if (i.name == s.in_facility and s.charge < sim(agent).role.max_battery) {
+		if (i.name == s.in_facility and s.charge < sim(agent).role.battery) {
             agent_last_cs[agent] = i.name;
             agent_cs[agent] = 0;
             into->emplace_back<Action_Charge>();
@@ -782,7 +782,7 @@ void Mothership_simple::post_request_action(u8 agent, Buffer* into) {
 
     auto get_target = [&req, this]() {
         if (req.dependency == 0xff) {
-            for (auto const& j: perc().priced_jobs) {
+            for (auto const& j: perc().jobs) {
                 if (j.id == job().job) {
                     return j.storage;
                 }
@@ -1034,11 +1034,11 @@ void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, in
 		world().team_id = simulation.team;
 		world().seed_capital = simulation.seed_capital;
 		world().max_steps = simulation.steps;
-		world().products.init(simulation.products, &general_buffer);
+		world().items.init(simulation.items, &general_buffer);
 		u8 i = 0;
-		for (Product const& p : simulation.products) {
-			world().products[i].consumed.init(p.consumed, &general_buffer);
-			world().products[i++].tools.init(p.tools, &general_buffer);
+		for (Item const& p : simulation.items) {
+			world().items[i].consumed.init(p.consumed, &general_buffer);
+			world().items[i++].tools.init(p.tools, &general_buffer);
 		}
 		world().roles.init(&general_buffer);
 	}
@@ -1060,7 +1060,7 @@ void Mothership_complex::pre_request_action() {
     situation_buffer.emplace<Situation>();
 }
 
-void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, int perc_size) {
+void Mothership_complex::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
 
     situation().agents[agent].pos = perc.self.pos;
     situation().agents[agent].charge = perc.self.charge;
@@ -1103,7 +1103,7 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 				s.rate = f.rate;
 				s.slots = f.slots;
 			}
-			world().dump_locations.init(perc.dump_locations, &general_buffer);
+			world().dumps.init(perc.dumps, &general_buffer);
 			world().shops.init(&general_buffer);
 			for (Shop const& f : perc.shops) {
 				Shop_static & s = world().shops.emplace_back(&general_buffer);
@@ -1152,8 +1152,8 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 			Storage_dynamic & s = situation().storages.emplace_back(&situation_buffer);
 			s.used_capacity = f.used_capacity;
 		}
-		situation().auction_jobs.init(perc.auction_jobs, &situation_buffer);
-		situation().priced_jobs.init(perc.priced_jobs, &situation_buffer);  
+		situation().auctions.init(perc.auctions, &situation_buffer);
+		situation().jobs.init(perc.jobs, &situation_buffer);  
 		if (perc.simulation_step != 0) {
 			// locally visible data from last step
 			u8 i = 0;
@@ -1199,14 +1199,14 @@ void Mothership_complex::pre_request_action(u8 agent, Perception const& perc, in
 			}
 		}
 		i = 0;
-		for (Job_auction const& f : perc.auction_jobs) {
-			Job_auction & j = situation().auction_jobs[i++];
-			j.items.init(f.items, &situation_buffer);
+		for (Auction const& f : perc.auctions) {
+			Auction & j = situation().auctions[i++];
+			j.required.init(f.required, &situation_buffer);
 		}
 		i = 0;
-		for (Job_priced const& f : perc.priced_jobs) {
-			Job_priced & j = situation().priced_jobs[i++];
-			j.items.init(f.items, &situation_buffer);
+		for (Job_priced const& f : perc.jobs) {
+			Job_priced & j = situation().jobs[i++];
+			j.required.init(f.required, &situation_buffer);
 		}
 	}
     
@@ -1359,7 +1359,7 @@ void Mothership_complex::get_agent_action(Situation& sit, u8 agent, Buffer* into
             }
         }
         if (d.task.state == 1) {
-            auto max_bat = world().roles[world().agents[agent].role].max_battery;
+            auto max_bat = world().roles[world().agents[agent].role].battery;
             if (d.last_action == Action::CHARGE and d.charge < max_bat) {
                 d.task.item.amount = 0;
             } else {
@@ -1426,8 +1426,8 @@ u8 Mothership_complex::can_agent_do(Situation const& sit, u8 agent, Task task) {
         return task.item.amount;                
     } else if (task.type == Task::BUY_ITEM or task.type == Task::CRAFT_ITEM
                or task.type == Task::CRAFT_ASSIST) {
-        auto vol = get_by_id<Product>(task.item.item)->volume;
-        int max_count = vol > 0 ? (world().roles[s.role].max_load - d.load) / vol : 83726;
+        auto vol = get_by_id<Item>(task.item.item)->volume;
+        int max_count = vol > 0 ? (world().roles[s.role].load - d.load) / vol : 83726;
         return max_count;
     } else if (task.type == Task::DELIVER_ITEM) {
         for (auto const& i: d.items) {
@@ -1539,7 +1539,7 @@ bool Mothership_complex::refuel_if_needed(Situation& sit, u8 agent, u8 where) {
         u8 best_station = 0;
         for (auto const& chasta: world().charging_stations) {
             float rating = dist(chasta.pos, sit.agents[agent].pos) + dist(chasta.pos, p)
-                + chasta.price * role.max_battery / chasta.rate;
+                + chasta.price * role.battery / chasta.rate;
             if (rating < best_rating) {
                 best_rating = rating;
                 best_station = chasta.name;
@@ -1557,7 +1557,7 @@ void Mothership_complex::heuristic_task_assign(Situation& sit) {
         
         // Check whether all the tools are present
         Task task = sit.goals[0];        
-        Product const& p = *get_by_id<Product>(task.item.item);
+        Item const& p = *get_by_id<Item>(task.item.item);
         bool everything_okay = true;
         for (Item_stack i: p.tools) {
             for (u8 agent = 0; agent < agents_per_team; ++agent) {
@@ -1714,7 +1714,7 @@ void Mothership_complex::heuristic_task_assign(Situation& sit) {
 }
     
 void Mothership_complex::add_req_tasks(Situation& sit, Item_stack i) {
-    Product const* p2 = get_by_id<Product>(i.item);
+    Item const* p2 = get_by_id<Item>(i.item);
     if (p2->assembled) {
         Task t2 {Task::CRAFT_ITEM, 0, i, 0};
         diff.add(sit.goals, t2);
@@ -1727,7 +1727,7 @@ void Mothership_complex::add_req_tasks(Situation& sit, Item_stack i) {
     
 void Mothership_complex::add_req_tasks(Situation& sit, Task task) {
     if (task.type == Task::CRAFT_ITEM) {
-        Product const* prod = get_by_id<Product>(task.item.item);
+        Item const* prod = get_by_id<Item>(task.item.item);
         for (Item_stack i: prod->consumed) {
             i.amount *= task.item.amount;
             add_req_tasks(sit, i);
@@ -1770,7 +1770,7 @@ void Mothership_complex::branch_goals(u32 treeid, u8 depth) {
     s32 steps_before = sit().simulation_step;
 
     u32 new_pos = situation_buffer.size();
-    for (auto const& job: sit().priced_jobs) {
+    for (auto const& job: sit().jobs) {
         u32 child_tree = step_buffer.size();
         tree(treeid).children.push_back({new_pos, treeid, 0}, &step_buffer);
         
@@ -1822,8 +1822,8 @@ void Mothership_complex::select_diff_situation(Situation const& s) {
     diff.register_arr(s.charging_stations);
     diff.register_arr(s.shops);
     diff.register_arr(s.storages);
-    diff.register_arr(s.auction_jobs);
-    diff.register_arr(s.priced_jobs); 
+    diff.register_arr(s.auctions);
+    diff.register_arr(s.jobs); 
     diff.register_arr(s.goals);
 
     for (auto const& i: s.shops) {
@@ -1832,11 +1832,11 @@ void Mothership_complex::select_diff_situation(Situation const& s) {
     for (auto const& i: s.storages) {
         diff.register_arr(i.items);
     }
-    for (auto const& i: s.auction_jobs) {
-        diff.register_arr(i.items);
+    for (auto const& i: s.auctions) {
+        diff.register_arr(i.required);
     }
-    for (auto const& i: s.priced_jobs) {
-        diff.register_arr(i.items);
+    for (auto const& i: s.jobs) {
+        diff.register_arr(i.required);
     }
 }
 
@@ -1852,10 +1852,10 @@ void Mothership_complex::on_request_action() {
     
     if (sit.goals.size() == 0) {
         // Select the first job
-        if (sit.priced_jobs.size() > 0) {
-            Job_priced const& job = sit.priced_jobs[0];
+        if (sit.jobs.size() > 0) {
+            Job_priced const& job = sit.jobs[0];
             sit.current_job = job.id;
-            for (Job_item item: job.items) {
+            for (Job_item item: job.required) {
                 Task task {Task::DELIVER_ITEM, job.storage, item, 0}; 
                 diff.add(sit.goals, task);
                 add_req_tasks(sit, task);
@@ -1907,7 +1907,7 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 		}
 
 		u16 ac = 0xffff;
-		Product const* p = get_by_id<Product>(item);
+		Item const* p = get_by_id<Item>(item);
 		if (p->assembled) {
 			ac = 0;
 			for (Item_stack const& i : p->consumed) {
@@ -1923,7 +1923,7 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 		u32 rt = 0;
 		// underestimate of job completion cost
 		u32 rc = 0;
-		for (Job_item ji : j.items) {
+		for (Job_item ji : j.required) {
 			u16 ir = rate_item(ji.item);
 			rt += ir * ji.amount;
 			rc += ir * ji.delivered;
@@ -1934,7 +1934,7 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 					rc += ir * team_items[it];
 					am -= team_items[it];
 					team_items[it] = 0;
-					Product const* p = get_by_id<Product>(it);
+					Item const* p = get_by_id<Item>(it);
 					if (p->assembled) {
 						for (Item_stack i : p->consumed) {
 							i.amount *= is.amount;
@@ -1970,8 +1970,8 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 		ti_stack.push_back(team_items);
 		u16 br = 0;
 		u16 bj = 0xffff;
-		for (u16 i = 0; i < s.priced_jobs.size(); i++) {
-			Job_priced const& j = s.priced_jobs[i];
+		for (u16 i = 0; i < s.jobs.size(); i++) {
+			Job_priced const& j = s.jobs[i];
 			bool jc = false;
 			for (u16 j = 0; j < job_depth; j++) {
 				if (job_positions[j] == i) {
@@ -1991,10 +1991,10 @@ u32 Mothership_complex::rate_situation(Situation const& s) {
 		if (bj == 0xffff) break;
 		job_positions[n] = bj;
 		// side effect: remove items from team_items
-		r += rate_job(s.priced_jobs[bj]);
+		r += rate_job(s.jobs[bj]);
 	}
 
 	return r;
 }
 } /* end of namespace jup */
-
+#endif

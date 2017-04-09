@@ -2,7 +2,7 @@
 
 #include "global.hpp"
 
-#include "agent.hpp"
+//#include "agent.hpp"
 #include "sockets.hpp"
 #include "messages.hpp"
 #include "system.hpp"
@@ -29,8 +29,8 @@ void print_usage(c_str argv0) {
 		<< "en the server and the program are dumped into a file.\n\n"
 		<< " " << ADD_AGENT << " [name] [password]  The login credentials for an agent. This opti"
 		<< "on may be specified multiple times. It also may use the % symbol at the end of a name,"
-		<< "which will be replaced by the numbers 1 to 16. For compatibility the , symbol has the "
-		<< "same effect.\n"
+		<< "which will be replaced by the numbers 1 to " << agents_per_team << ". For compatibilit"
+		<< "y the , symbol has the same effect.\n"
 		<< " " << ADD_DUMMY << " [name] [password]  Like " << ADD_AGENT << " but adds a dummy tha"
 		<< "t does not do anything.\n"
 		<< " " << LOAD_CFGFILE << " [path]  The file is interpreted as a configfile. See below for"
@@ -103,7 +103,7 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
             }
 
             if (name.end()[-1] == '%' or name.end()[-1] == ',') {
-                for (int i = 1; i <= 16; ++i) {
+                for (int i = 1; i <= agents_per_team; ++i) {
                     constexpr int space = 8;
                     int name_off = into->_string_storage.size();
                     into->_string_storage.append(name);
@@ -241,7 +241,9 @@ int main(int argc, c_str const* argv) {
 	}
 
 	if (not options.statistics) {
-		Mothership_simple mothership;
+		auto server_wrapper = std::make_unique<Server>(options);
+		server = &*server_wrapper;
+		Mothership_statistics mothership;
 		if (options.dump_xml) {
 			dump_xml = std::ofstream{ options.dump_xml.c_str() };
 			init_messages(&dump_xml);

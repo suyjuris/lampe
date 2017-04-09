@@ -8,6 +8,7 @@
 namespace jup {
 
 constexpr char const* Action::action_names[];
+constexpr char const* Action::action_args[];
 constexpr char const* Action::action_result_names[];
 
 float Pos::dist(Pos p) const {

@@ -1,6 +1,6 @@
 #pragma once
 
-#define SOFTASSERT
+//#define SOFTASSERT
 
 /**
  * Needed for CancelSynchronousIo

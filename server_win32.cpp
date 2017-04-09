@@ -140,15 +140,15 @@ Server::Server(Server_options const& op): options{op} {
 
         int package_pattern = general_buffer.size();
         general_buffer.append(op.massim_loc);
-        general_buffer.append("\\target\\agentcontest-*.jar");
+        general_buffer.append("\\server\\server-*.jar");
         general_buffer.append("", 1);
                
         int package = general_buffer.size();
-        general_buffer.append("..\\target\\");
+        general_buffer.append("..\\server\\");
         if (!find_file_not_containing(general_buffer.data() + package_pattern,
                                       {"sources", "javadoc"}, &general_buffer)) {
             jerr << "Could not find server jar. You specified the location:\n";
-            jerr << "  " << op.massim_loc << '\n';
+            jerr << "  " << op.massim_loc.c_str() << '\n';
             assert(false);
         }
         jerr << "Using package: " << general_buffer.data() + package << '\n';
@@ -157,26 +157,26 @@ Server::Server(Server_options const& op): options{op} {
         if (op.config_loc) {
             int config_pattern = general_buffer.size();
             general_buffer.append(op.massim_loc);
-            general_buffer.append("\\scripts\\");
+            general_buffer.append("\\server\\");
             config = general_buffer.size();
             general_buffer.append(op.config_loc);
             general_buffer.append("", 1);
             if (not file_exists(general_buffer.data() + config_pattern)) {
                 jerr << "The configuration file does not exist. You specified the location:\n  "
-                     << op.config_loc << "\nPlease make sure to specify the location relative to ma"
+                     << op.config_loc.c_str() << "\nPlease make sure to specify the location relative to ma"
                      <<"ssim's scripts directory.\n";
                 assert(false);
             }
         } else {
             int config_pattern = general_buffer.size();
             general_buffer.append(op.massim_loc);
-            general_buffer.append("\\scripts\\conf\\2015*");
+            general_buffer.append("\\server\\conf\\*");
             general_buffer.append("", 1);
 
             config = general_buffer.size();
             general_buffer.append("conf\\");
             if (!find_file_not_containing(general_buffer.data() + config_pattern,
-                                          {"random"}, &general_buffer)) {
+                                          {"lampe"}, &general_buffer)) {
                 jerr << "Could not find config file using the default pattern. Use the "
                      << CONFIG_LOC << " option to specify a different path. The default pattern is:"
                      << "\n  " << general_buffer.data() + config_pattern << '\n';
@@ -190,21 +190,20 @@ Server::Server(Server_options const& op): options{op} {
                               "xpansionLimit=1000000 -DelementAttributeLimit=1000000 -Djava.rmi.ser"
                               "ver.hostname=TST -jar ");
         general_buffer.append(general_buffer.data() + package);
-        general_buffer.append(" --conf ");
+        general_buffer.append(" -conf ");
         general_buffer.append(general_buffer.data() + config);
         general_buffer.append("", 1);
 
         int dir = general_buffer.size();
         general_buffer.append(op.massim_loc);
-        general_buffer.append("\\scripts");
+        general_buffer.append("\\server");
         general_buffer.append("", 1);
     
         proc.write_to_stdout = true;
         // TODO: Better error message for missing java
         proc.init(general_buffer.data() + cmdline, general_buffer.data() + dir);
 
-        proc.waitFor("[ NORMAL ]  ##   InetSocketListener created");
-                         
+        proc.waitFor("[ NORMAL  ]  ##   Please press ENTER to start the tournament.");
         general_buffer.reset();
     }
 
@@ -258,8 +257,8 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
     if (!answer.succeeded) {
         // TODO: don't print the password onto the console, that's generally
         // dumb (maybe print stars instead)
-        jerr << "Warning: Agent named " << agent.name << " with password "
-             << agent.password << " could not log in\n";
+        jerr << "Warning: Agent named " << agent.name.c_str() << " with password "
+             << agent.password.c_str() << " could not log in\n";
         return false;
     }
 
@@ -374,7 +373,7 @@ void Server::run_simulation() {
                 step_buffer.reserve_space(256);
             
                 auto& answ = step_buffer.emplace_back<Message_Action>(
-                    i.last_perception_id, step_buffer.get<Action_Post_job1>(action_offset), &step_buffer
+                    i.last_perception_id, step_buffer.get<Action_Post_job>(action_offset), &step_buffer
                     );
                 send_message(i.socket, answ);
             }

@@ -11,7 +11,7 @@
 namespace jup {
 
 // Forward declaration of Buffer, for the constructor of Buffer_view.
-struct Buffer;
+class Buffer;
 
 /**
  * A read only objects referencing a continuous memory region of a certain size
