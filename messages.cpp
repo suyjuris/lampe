@@ -148,73 +148,20 @@ u16 get_id_from_string16(Buffer_view str) { return idmap16().get_id(str); }
 Buffer_view get_string_from_id(u8  id) { return idmap()  .get_value(id); }
 Buffer_view get_string_from_id(u16 id) { return idmap16().get_value(id); }
 
-// Data for mapping coordinates to u8
-constexpr double mess_lat_lon_padding = 0.2;
-bool messages_lat_lon_initialized = false;
-double mess_min_lat;
-double mess_max_lat;
-double mess_min_lon;
-double mess_max_lon;
-float mess_scale_lat;
-float mess_scale_lon;
-
-/**
- * Parse a point and change the min/max lat/lon accordingly. This assumes that
- * we are in an area that does not have wrapping longitudes (like 179Â° to -179Â°)
- * and is nearly planar.
- */
-void add_bound_point(pugi::xml_node xml_obj) {
-	double lat = xml_obj.attribute("lat").as_double();
-	double lon = xml_obj.attribute("lon").as_double();
-	if (!messages_lat_lon_initialized) {
-		mess_min_lat = lat;
-		mess_max_lat = lat;
-		mess_min_lon = lon;
-		mess_max_lon = lon;
-		messages_lat_lon_initialized = true;
-	}
-	if (lat < mess_min_lat) mess_min_lat = lat;
-	if (lat > mess_max_lat) mess_max_lat = lat;
-	if (lon < mess_min_lon) mess_min_lon = lon;
-	if (lon > mess_max_lon) mess_max_lon = lon;
-    
-    float lon_radius = std::cos((mess_max_lat + mess_min_lat) / 360. * M_PI) * radius_earth;
-    auto pmin = get_pos_back({0, 0});
-    auto pmax = get_pos_back({255, 255});
-    mess_scale_lat = (pmax.first  - pmin.first ) / 180.f * (radius_earth * M_PI) / 255.f;
-    mess_scale_lon = (pmax.second - pmin.second) / 180.f * (lon_radius   * M_PI) / 255.f;
-}
-
-
-void reset_messages() {
-    messages_lat_lon_initialized = false;
-}
-
 /**
  * Construct the Pos object from the coordinates in xml_obj
  */
 Pos get_pos(pugi::xml_node xml_obj) {
-	constexpr static double pad = mess_lat_lon_padding;
+	constexpr static double pad = lat_lon_padding;
 	double lat = xml_obj.attribute("lat").as_double();
 	double lon = xml_obj.attribute("lon").as_double();
-	double lat_diff = (mess_max_lat - mess_min_lat);
-	double lon_diff = (mess_max_lon - mess_min_lon);
-	lat = (lat - mess_min_lat + lat_diff * pad) / (1 + 2*pad) / lat_diff;
-	lon = (lon - mess_min_lon + lon_diff * pad) / (1 + 2*pad) / lon_diff;
+	double lat_diff = (map_max_lat - map_min_lat);
+	double lon_diff = (map_max_lon - map_min_lon);
+	lat = (lat - map_min_lat + lat_diff * pad) / (1 + 2*pad) / lat_diff;
+	lon = (lon - map_min_lon + lon_diff * pad) / (1 + 2*pad) / lon_diff;
 	assert(0.0 <= lat and lat < 1.0);
 	assert(0.0 <= lon and lon < 1.0);
 	return Pos {(u16)(lat * 65536.0 + 0.5), (u16)(lon * 65536.0 + 0.5)};
-}
-
-std::pair<double, double> get_pos_back(Pos pos) {
-    constexpr static double pad = mess_lat_lon_padding;
-	double lat_diff = (mess_max_lat - mess_min_lat);
-	double lon_diff = (mess_max_lon - mess_min_lon);
-	double lat = (double)pos.lat / 65536.0;
-	double lon = (double)pos.lon / 65536.0;
-	lat = lat * lat_diff * (1 + 2*pad) - lat_diff * pad + mess_min_lat;
-	lon = lon * lon_diff * (1 + 2*pad) - lon_diff * pad + mess_min_lon;
-    return {lat, lon};
 }
 
 /**
@@ -364,17 +311,6 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	into->trap_alloc(true);
 
 	auto& perc = into->emplace_back<Message_Request_Action>().perception;
-
-	if (!messages_lat_lon_initialized) {
-		add_bound_point(xml_self);
-		for (auto i : xml_perc.children("entity")) { add_bound_point(i); }
-		for (auto i : xml_perc.children("shop")) { add_bound_point(i); }
-		for (auto i : xml_perc.children("workshop")) { add_bound_point(i); }
-		for (auto i : xml_perc.children("chargingStation")) { add_bound_point(i); }
-		for (auto i : xml_perc.children("dump")) { add_bound_point(i); }
-		for (auto i : xml_perc.children("storage")) { add_bound_point(i); }
-		for (auto i : xml_perc.children("resourceNode")) { add_bound_point(i); }
-	}
 
 	narrow(perc.deadline, xml_perc.attribute("deadline").as_ullong());
 	narrow(perc.id,       xml_perc.attribute("id")      .as_int());
@@ -938,54 +874,76 @@ void send_message(Socket& sock, Message_Action const& mess) {
         xml_auth.append_attribute("id") = mess.id;
         xml_auth.append_attribute("type") = Action::get_name(mess.action->type);
 
-#define get_next_arg(ap, T) (*(T*)((ap += sizeof(T)) - sizeof(T)))
 
-		auto const& action = *mess.action;
-		assert(action.type < sizeof(Action::action_args) / sizeof(Action::action_args[0]));
-		u8 const* ap = (u8 const*)&action + sizeof(Action);
-		for (char const* fmt = Action::action_args[action.type]; *fmt; ++fmt) {
-			switch (*fmt) {
-			case 'n':
-				xml_auth.append_child("p").text() = get_next_arg(ap, u16 const);
-				break;
-			case 'N':
-				xml_auth.append_child("p").text() = get_next_arg(ap, u32 const);
-				break;
-			case 's':
-				xml_auth.append_child("p").text() = get_string_from_id(get_next_arg(ap, u8 const)).c_str();
-				break;
-			case 'S':
-				xml_auth.append_child("p").text() = get_string_from_id(get_next_arg(ap, u16 const)).c_str();
-				break;
-			case 'p': {
-				// workaround
-				auto const back = get_pos_back(((Action_Goto2 const&)action).pos);
-				//auto const back = get_pos_back(get_next_arg(ap, Pos const));
-				xml_auth.append_child("p").text() = back.first;
-				xml_auth.append_child("p").text() = back.second;
-				break;
+		Action const& action = *mess.action;
+
+#define next_arg xml_auth.append_child("p").text()
+#define cast(T) auto const& a = (T const&) action
+
+		switch (mess.action->type) {
+		case Action::GIVE: {
+			cast(Action_Give);
+			next_arg = a.agent;
+			next_arg = a.item.item;
+			next_arg = a.item.amount;
+		} break;
+		case Action::STORE:
+		case Action::RETRIEVE:
+		case Action::RETRIEVE_DELIVERED:
+		case Action::BUY:
+		case Action::DUMP: {
+			cast(Action_Store);
+			next_arg = a.item.item;
+			next_arg = a.item.amount;
+		} break;
+		case Action::ASSEMBLE:
+		case Action::ASSIST_ASSEMBLE:
+		case Action::GOTO1: {
+			cast(Action_Assemble);
+			next_arg = get_string_from_id(a.item);
+		} break;
+		case Action::DELIVER_JOB: {
+			cast(Action_Deliver_job);
+			next_arg = get_string_from_id(a.job);
+		} break;
+		case Action::BID_FOR_JOB: {
+			cast(Action_Bid_for_job);
+			next_arg = a.job;
+			next_arg = a.bid;
+		} break;
+		case Action::POST_JOB: {
+			cast(Action_Post_job);
+			next_arg = a.reward;
+			next_arg = a.duration;
+			next_arg = a.storage;
+			for (Item_stack i : a.items) {
+				next_arg = i.item;
+				next_arg = i.amount;
 			}
-			case 'i': {
-				auto const item = get_next_arg(ap, Item_stack const);
-				xml_auth.append_child("p").text() = get_string_from_id(item.item).c_str();
-				xml_auth.append_child("p").text() = item.amount;
-				break;
-			}
-			case 'I': {
-				auto const& items = get_next_arg(ap, Flat_array<Item_stack const> const);
-				for (auto item : items) {
-					xml_auth.append_child("p").text() = get_string_from_id(item.item).c_str();
-					xml_auth.append_child("p").text() = item.amount;
-				}
-				break;
-			}
-			case '!':
-			default:
-				assert(false);
-				break;
-			}
+		} break;
+		case Action::GOTO2: {
+			cast(Action_Goto2);
+			auto const back = get_pos_back(a.pos);
+			next_arg = back.first;
+			next_arg = back.second;
+		} break;
+		case Action::RECIEVE:
+		case Action::CHARGE:
+		case Action::RECHARGE:
+		case Action::CONTINUE:
+		case Action::SKIP:
+		case Action::GATHER:
+		case Action::GOTO0:
+			break;
+		case Action::GOTO:
+		case Action::UNKNOWN_ACTION:
+		case Action::RANDOM_FAIL:
+		case Action::NO_ACTION:
+		default:
+			assert(false);
 		}
-
+#undef next_arg
+#undef cast
         send_xml_message(sock, doc);
     }
     memory_for_messages.trap_alloc(false);

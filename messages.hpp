@@ -5,6 +5,7 @@
 #include "buffer.hpp"
 #include "objects.hpp"
 #include "sockets.hpp"
+#include "graph.hpp"
 
 namespace jup {
 
@@ -90,24 +91,6 @@ struct Message_Request_Action: Message_Server2Client {
 
 	Percept perception;
 };
-
-// Some constants for distance calculations
-extern bool messages_lat_lon_initialized;
-extern double mess_min_lat;
-extern double mess_max_lat;
-extern double mess_min_lon;
-extern double mess_max_lon;
-extern float mess_scale_lat;
-extern float mess_scale_lon;
-// The approximate radius of the earth in m
-static constexpr float radius_earth = 6371e3;
-// The speed that 1 (e.g. the truck) represents in m/step
-static constexpr float speed_conversion = 80;
-
-/**
- * Returns the actual coordinates from a position
- */
-std::pair<double, double> get_pos_back(Pos pos);
 
 /**
  * Performs various initialization functions. Call before get_next_message or send_message.

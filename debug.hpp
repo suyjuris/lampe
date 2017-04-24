@@ -10,7 +10,7 @@ namespace jup {
 void dbg_main();
 
 #define __get_macro(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9,\
-_10, _11, _12, _13, _14, mac, ...) mac
+_10, _11, _12, _13, _14, _15, _16, _17, _18, mac, ...) mac
 #define __fh1(mac, a) mac(a)
 #define __fh2(mac, a, ...) mac(a) __fh1(mac, __VA_ARGS__)
 #define __fh3(mac, a, ...) mac(a) __fh2(mac, __VA_ARGS__)
@@ -26,9 +26,14 @@ _10, _11, _12, _13, _14, mac, ...) mac
 #define __fh13(mac, a, ...) mac(a) __fh12(mac, __VA_ARGS__)
 #define __fh14(mac, a, ...) mac(a) __fh13(mac, __VA_ARGS__)
 #define __fh15(mac, a, ...) mac(a) __fh14(mac, __VA_ARGS__)
-#define __forall(mac, ...) __get_macro(__VA_ARGS__, __fh15,__fh14,\
-__fh13, __fh12, __fh11, __fh10, __fh9, __fh8, __fh7, __fh6,\
-__fh5, __fh4, __fh3, __fh2, __fh1, "fill") (mac, __VA_ARGS__)
+#define __fh16(mac, a, ...) mac(a) __fh15(mac, __VA_ARGS__)
+#define __fh17(mac, a, ...) mac(a) __fh16(mac, __VA_ARGS__)
+#define __fh18(mac, a, ...) mac(a) __fh17(mac, __VA_ARGS__)
+#define __fh19(mac, a, ...) mac(a) __fh18(mac, __VA_ARGS__)
+#define __forall(mac, ...) __get_macro(__VA_ARGS__, __fh19,\
+__fh18, __fh17, __fh16, __fh15,__fh14, __fh13, __fh12, __fh11,\
+__fh10, __fh9, __fh8, __fh7, __fh6, __fh5, __fh4, __fh3, __fh2,\
+ __fh1, "fill") (mac, __VA_ARGS__)
 
 // An output stream for debugging purposes
 struct Debug_ostream {
@@ -138,7 +143,7 @@ oP(Entity, name, team, pos, role)
 oP(Facility, name, pos)
 oP(Charging_station, name, pos, rate)
 oP(Dump, name, pos)
-op(Shop_item, item, amount, cost)
+oP(Shop_item, item, amount, cost)
 oP(Shop, name, pos, restock, items)
 op(Storage_item, item, amount, delivered)
 oP(Storage, name, pos, total_capacity, used_capacity, items)
@@ -149,8 +154,8 @@ oP(Mission, id, storage, start, end, required, reward, fine, max_bid)
 oP(Posted, id, storage, start, end, required, reward)
 oP(Resource_node, name, resource, pos)
 op(Percept, deadline, id, simulation_step, team_money, self, entities,
-	charging_stations, dumps, shops, storages, workshops, auctions,
-	missions, jobs, resource_nodes)
+	charging_stations, dumps, shops, storages, workshops, resource_nodes,
+	auctions, jobs, missions, posteds)
 /*op(Requirement, type, dependency, item, where, is_tool, state, id)
 oP(Job_execution, job, cost, needed)
 op(Cheap_item, item, price, shop)
