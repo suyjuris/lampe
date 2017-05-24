@@ -1,6 +1,3 @@
-#include "objects.hpp"
-
-#include <cmath>
 
 #include "objects.hpp"
 #include "messages.hpp"

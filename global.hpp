@@ -1,24 +1,59 @@
-#pragma once
-
-//#define SOFTASSERT
-
-/**
- * Needed for CancelSynchronousIo
- */
+// Needed for CancelSynchronousIo
+#undef _WIN32_WINNT
 #define _WIN32_WINNT _WIN32_WINNT_VISTA
+
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+
+// lampe general headers
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <csignal>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <deque>
+#include <fstream>
+#include <functional>
+#include <initializer_list>
+#include <iostream>
+#include <iterator>
+#include <limits>   
+#include <list>
+#include <memory>
+#include <mutex>
+#include <ostream>
+#include <sstream>
+#include <string>
+#include <thread>
+#include <utility>
+#include <vector>
+
+// pugixml headers
+#include "pugixml.hpp"
+
+// win32 libraries
+#include "global_win32.hpp"
 
 #define BARRIER "--------------------------------"
 
+//#define SOFTASSERT
 #ifndef SOFTASSERT
 #include <cassert>
 #else
 void assert(bool expr);
 #endif
 
-#include <cstdint>
-#include <ostream>
 
 namespace jup {
+
 // Standard integer types
 using s64 = std::int64_t;
 using u64 = std::uint64_t;

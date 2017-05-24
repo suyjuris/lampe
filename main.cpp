@@ -1,6 +1,3 @@
-#include <fstream>
-
-#include "global.hpp"
 
 //#include "agent.hpp"
 #include "sockets.hpp"
@@ -9,8 +6,6 @@
 #include "server.hpp"
 #include "statistics.hpp"
 #include "debug.hpp"
-
-#include <memory>
 
 using namespace jup;
 

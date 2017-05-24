@@ -1,9 +1,5 @@
-#include "global.hpp"
-#include "system.hpp"
 
-#include <stdlib.h>
-#include <windows.h>
-#include <fstream>
+#include "system.hpp"
 
 namespace jup {
 

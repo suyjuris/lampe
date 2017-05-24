@@ -1,12 +1,6 @@
 #pragma once
 
-#include <cstdlib>
-#include <windows.h>
-#include <thread>
-#include <sstream>
 #include "buffer.hpp"
-#include <mutex>
-
 
 namespace jup {
 

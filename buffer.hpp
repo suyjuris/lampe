@@ -1,13 +1,6 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cstdlib>
-#include <cstring>
-#include <string>
-#include <vector>
-#include <fstream>
-
 namespace jup {
 
 // Forward declaration of Buffer, for the constructor of Buffer_view.

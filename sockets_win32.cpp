@@ -1,16 +1,4 @@
 
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-
-#include "global.hpp"
-
-#include <string>
-#include <vector>
-
-#include <winsock2.h>
-#include <ws2tcpip.h>
-
 #include "sockets.hpp"
 #include "system.hpp"
 

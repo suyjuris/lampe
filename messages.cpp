@@ -1,17 +1,5 @@
 
-#include "global.hpp"
-
-#define _USE_MATH_DEFINES
-
-#include <algorithm>
-#include <cmath>
-#include <cstring>
-#include <iterator>
-#include <memory>
-#include <string>
-
 #include "messages.hpp"
-#include "pugixml.hpp"
 #include "debug.hpp"
 
 namespace jup {
@@ -236,10 +224,10 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 	for (auto xml_item: xml_obj.children("item")) {
 		assert(item != sim.items.end());
 		item->consumed.init(into);
-		for (auto xml_item : xml_item.children("item")) {
+		for (auto xml_consumed : xml_item.children("item")) {
 			Item_stack stack;
-			stack.item = get_id(xml_item.attribute("name").value());
-			narrow(stack.amount, xml_item.attribute("amount").as_int());
+			stack.item = get_id(xml_consumed.attribute("name").value());
+			narrow(stack.amount, xml_consumed.attribute("amount").as_int());
 			item->consumed.push_back(stack, into);
 		}
 		item->tools.init(into);

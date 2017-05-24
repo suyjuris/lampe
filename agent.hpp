@@ -1,9 +1,5 @@
 #pragma once
 
-#include "global.hpp"
-
-#include <functional>
-
 #include "buffer.hpp"
 #include "objects.hpp"
 #include "server.hpp"
