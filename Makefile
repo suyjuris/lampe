@@ -27,7 +27,7 @@ $(PRE_HEADER): global.hpp
 
 $(TMPDIR)/%.d: %.cpp $(HEADERS)
 	@mkdir -p $(TMPDIR)
-	@set -e; $(CXX) -MM $(CPPFLAGS) $< | sed 's,\($*\)\.o[ :]*,\1.o $@ : ,g' > $@;
+	@set -e; $(CXX) -MM $(CPPFLAGS) $< | sed 's,\($*\)\.o[ :]*,$(TMPDIR)/\1.o $@ : ,g' > $@;
 
 $(TMPDIR)/%.o: %.cpp $(PRE_HEADER)
 	@mkdir -p $(TMPDIR)

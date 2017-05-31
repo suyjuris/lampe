@@ -30,6 +30,13 @@ bool file_exists(Buffer_view path);
  */
 void cancel_blocking_io(std::thread& thread);
 
+/**
+ * Test whether expr is true. If it is not, the last Windows error is queried
+ * (via GetLastError) and printed.
+ */
+#define assert_win(expr) _assert_win_internal((expr), __FILE__, __LINE__)
+void _assert_win_internal(bool expr, char const* file, int line);
+
 class Process {
 public:
     bool write_to_buffer = true;

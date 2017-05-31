@@ -200,7 +200,7 @@ Server::Server(Server_options const& op): options{op} {
         proc.waitFor("[ NORMAL  ]  ##   Please press ENTER to start the tournament.");
         general_buffer.reset();
     }
-
+    
     agent_buffer.reserve(2048);
     agent_buffer.emplace_back<Flat_array<Agent_data>>();
     agents().init(&agent_buffer);
@@ -215,6 +215,64 @@ Server::~Server() {
         stdin_listener.detach();
     }
 }
+
+bool Server::load_maps() {
+    WIN32_FIND_DATA find_data;
+    HANDLE handle = nullptr;
+
+    general_buffer.reserve(2048);
+    
+    int init_off = general_buffer.size();
+    general_buffer.append(options.massim_loc);
+    general_buffer.append("\\server\\graphs\\*");
+    general_buffer.append0();
+
+    handle = FindFirstFile(general_buffer.data() + init_off, &find_data);
+    if (handle == INVALID_HANDLE_VALUE) {
+        jerr << "Could not load the maps from massim. This could happend if massim was not run yet."
+             << "You specified the following location for the massim directory:\n";
+        jerr << "  " << options.massim_loc.c_str() << '\n';
+        return false;
+    }
+
+    do {
+        if(not (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
+            continue;
+        }
+
+        int nodes_offset  = general_buffer.size();
+        general_buffer.append(options.massim_loc);
+        general_buffer.append("\\server\\graphs\\");
+        general_buffer.append(find_data.cFileName);
+        general_buffer.append("nodes");
+        general_buffer.append0();
+
+        int edges_offset  = general_buffer.size();
+        general_buffer.append(options.massim_loc);
+        general_buffer.append("\\server\\graphs\\");
+        general_buffer.append(find_data.cFileName);
+        general_buffer.append("edges");
+        general_buffer.append0();
+        
+        graphs.emplace_back();
+        graphs.back().init(
+            find_data.cFileName,
+            general_buffer.data() + nodes_offset,
+            general_buffer.data() + edges_offset
+        );
+        general_buffer.resize(nodes_offset);
+
+        jout << "Loaded map " << find_data.cFileName << '\n';
+    } while (FindNextFile(handle, &find_data));
+    general_buffer.resize(init_off);
+    
+    auto err_code = GetLastError();
+    assert_win(err_code == ERROR_NO_MORE_FILES);
+    
+    FindClose(handle);
+    return true;
+}
+
 
 void Server::register_mothership(Mothership* mothership_) {
     mothership = mothership_;
@@ -239,7 +297,6 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
             data.socket.init(options.host_ip, "12300");
         }
     }
-    
     
     if (!data.socket) { return false; }
 
@@ -293,7 +350,6 @@ void Server::run_simulation() {
     }
     
     while (true) {
-        
         int max_steps = -1;
 
         for (int i = 0; i < agents().size(); ++i) {
@@ -308,6 +364,24 @@ void Server::run_simulation() {
                 assert(false);
             }
             auto& mess = general_buffer.get<Message_Sim_Start>(mess_offset);
+
+            // Initialize the map
+            if (i == 0) {            
+                Buffer_view name = get_string_from_id(mess.simulation.map);
+                bool found = false;
+                for (Graph& graph: graphs) {
+                    if (name == graph.name()) {
+                        set_messages_graph(&graph);
+                        found = true;
+                        break;
+                    }
+                }
+                if (not found) {
+                    jerr << "Error: Could not find map " << name << '\n';
+                    assert(false);
+                    return;
+                }
+            }
             
             mess.simulation.id = register_id(agents()[i].name);
             if (max_steps != -1) {

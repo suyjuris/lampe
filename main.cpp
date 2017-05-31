@@ -35,9 +35,10 @@ void print_usage(c_str argv0) {
 		<< " and " << CONFIG_LOC << " respectively, the latter has higher priority).\n\n"
 		<< "Configfile syntax:\n"
 		<< " The configfile is split into lines. Each lines either starts with an '#', which cause"
-		<< "s it to be ignored, or has the following form:\n   option arg1 [arg2]\n\n"
-		<< " " << STATISTICS << " [file]  Instead of launching competitive agents, gather statis"
-		<< "tical information about simulations and append them to the specified file\n\n";
+		<< "s it to be ignored, or has the following form:\n   option arg1 [arg2]\n\n "
+        << LAMPE_SHIP << " [ship]  Specifies the type of operation. Must be one of:\n    test  To "
+        << "run a quick self-check\n    stats  To collect statistical information about simulation"
+        << "s and append them to the specified file\n\n";
 }
 
 /**
@@ -83,6 +84,26 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
         } else if (arg == DUMP_XML) {
             if (not pop(&into->dump_xml)) {
                 return false;
+            }
+        } else if (arg == STATS_FILE) {
+            if (not pop(&into->statistics_file)) {
+                return false;
+            }
+        } else if(arg == LAMPE_SHIP) {
+            Buffer_view tmp;
+            if (not pop(&tmp)) {
+                return false;
+            }
+			if (tmp == LAMPE_SHIP_TEST) {
+				into->ship = Server_options::SHIP_TEST;
+			} else if (tmp == LAMPE_SHIP_STATS) {
+				into->ship = Server_options::SHIP_STATS;
+			} else if (tmp == LAMPE_SHIP_PLAY) {
+				into->ship = Server_options::SHIP_PLAY;
+			} else {
+				jerr << "Error: unknown ship '" << tmp << "', must be one of " << LAMPE_SHIP_TEST
+                     << ", " << LAMPE_SHIP_STATS << " or " << LAMPE_SHIP_PLAY << '\n';
+				return false;
             }
         } else if (arg == ADD_AGENT or arg == ADD_DUMMY) {
             bool is_dumb = arg == ADD_DUMMY;
@@ -196,12 +217,7 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 					 << path.c_str() << '\n';
 				return false;
 			}
-		} else if(arg == STATISTICS) {
-			into->statistics = true;
-			if (not pop(&into->statistics_file)) {
-				return false;
-			}
-        } else {
+		} else {
             jerr << "Error: Invalid option. The option was:\n  " << arg.c_str() << '\n';
             return false;
         }
@@ -211,7 +227,6 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 }
 
 int main(int argc, c_str const* argv) {
-
 	//statistics_main();
 	//return 0;
 
@@ -235,9 +250,9 @@ int main(int argc, c_str const* argv) {
 		return 1;
 	}
 
-	if (not options.statistics) {
+	if (options.ship != Server_options::SHIP_STATS) {
 		auto server_wrapper = std::make_unique<Server>(options);
-		server = &*server_wrapper;
+		server = server_wrapper.get();
 		Mothership_statistics mothership;
 		if (options.dump_xml) {
 			dump_xml = std::ofstream{ options.dump_xml.c_str() };
@@ -246,44 +261,51 @@ int main(int argc, c_str const* argv) {
 		else {
 			init_messages();
 		}
+
+        if (not server->load_maps()) {
+            return 2;
+        }
+        
 		Socket_context socket_context;
 		server->register_mothership(&mothership);
 		server->run_simulation();
-	} else while (true) {
-		try {
-			Mothership_statistics mothership; {
-				auto server_wrapper = std::make_unique<Server>(options);
-				server = &*server_wrapper;
+	} else {
+        while (true) {
+            try {
+                Mothership_statistics mothership;
+                {
+                    auto server_wrapper = std::make_unique<Server>(options);
+                    server = &*server_wrapper;
 
-				if (options.dump_xml) {
-					dump_xml = std::ofstream{ options.dump_xml.c_str() };
-					init_messages(&dump_xml);
-				} else {
-					init_messages();
-				}
-				Socket_context socket_context;
-				server->register_mothership(&mothership);
-				server->run_simulation();
+                    if (options.dump_xml) {
+                        dump_xml = std::ofstream{ options.dump_xml.c_str() };
+                        init_messages(&dump_xml);
+                    } else {
+                        init_messages();
+                    }
+                    Socket_context socket_context;
+                    server->register_mothership(&mothership);
+                    server->run_simulation();
 
-				//delete server;
-				jout << "closing scope...";
-			}
-			jout << "\nwriting to file... ";
-			Buffer b;
-			b.read_from_file(options.statistics_file.data());
-			if (b.size() == 0) {
-				b.emplace_back<Flat_list<Game_statistic, u16, u32>>();
-				b.get<Flat_list<Game_statistic, u16, u32>>(0).init(&b);
-			}
-			auto& list = b.get<Flat_list<Game_statistic, u16, u32>>(0);
+                    jout << "closing scope...";
+                }
+                jout << "\nwriting to file... ";
+                Buffer b;
+                b.read_from_file(options.statistics_file.data());
+                if (b.size() == 0) {
+                    b.emplace_back<Flat_list<Game_statistic, u16, u32>>();
+                    b.get<Flat_list<Game_statistic, u16, u32>>(0).init(&b);
+                }
+                auto& list = b.get<Flat_list<Game_statistic, u16, u32>>(0);
 
-			list.push_back(Buffer_view(mothership.get_statistic()), &b);
-			b.write_to_file(options.statistics_file.data());
-			jout << "done\n\n";
-		} catch (...) {
-			jerr << "Error occured, starting next simulation" << endl;
-		}
-	}
+                list.push_back(Buffer_view(mothership.get_statistic()), &b);
+                b.write_to_file(options.statistics_file.data());
+                jout << "done\n\n";
+            } catch (...) {
+                jerr << "Error occured, starting next simulation" << endl;
+            }
+        }
+    }
 	options._string_storage.trap_alloc(false);
 	program_closing = true;
 	return 0;

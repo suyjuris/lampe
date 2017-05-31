@@ -58,6 +58,9 @@ static Buffer memory_for_strings;
 // If this is not null, each message will be dumped in xml form into the stream.
 static std::ostream* dump_xml_output;
 
+// The graph representing the map we currently are on.
+static Graph* current_map_graph;
+    
 /**
  * Implement the pugi memory function. This tries to get the memory from
  * memory_for_messages. If that fails due to not enough space the memory is
@@ -81,7 +84,7 @@ void* allocate_pugi(size_t size) {
 void deallocate_pugi(void* ptr) {
 	// If the memory is inside the buffer, ignore the deallocation. The buffer is
 	// cleared anyways.
-	if (memory_for_messages.begin() > ptr or ptr >= memory_for_messages.end()) {
+	if (not memory_for_messages.inside(ptr)) {
 		free(ptr);
 	}
 }
@@ -113,6 +116,13 @@ void init_messages(std::ostream* _dump_xml_output) {
 	assert(idmap16().get_id("", &memory_for_strings) == 0);
 
     dump_xml_output = _dump_xml_output;
+
+    current_map_graph = nullptr;
+}
+
+// see header
+void set_messages_graph(Graph* graph) {
+    current_map_graph = graph;
 }
 
 /**
@@ -139,30 +149,11 @@ Buffer_view get_string_from_id(u16 id) { return idmap16().get_value(id); }
 /**
  * Construct the Pos object from the coordinates in xml_obj
  */
-Pos get_pos(pugi::xml_node xml_obj) {
-	constexpr static double pad = lat_lon_padding;
+static Pos get_pos(pugi::xml_node xml_obj) {
 	double lat = xml_obj.attribute("lat").as_double();
 	double lon = xml_obj.attribute("lon").as_double();
-	double lat_diff = (map_max_lat - map_min_lat);
-	double lon_diff = (map_max_lon - map_min_lon);
-	lat = (lat - map_min_lat + lat_diff * pad) / (1 + 2*pad) / lat_diff;
-	lon = (lon - map_min_lon + lon_diff * pad) / (1 + 2*pad) / lon_diff;
-	assert(0.0 <= lat and lat < 1.0);
-	assert(0.0 <= lon and lon < 1.0);
-	return Pos {(u16)(lat * 65536.0 + 0.5), (u16)(lon * 65536.0 + 0.5)};
+    return current_map_graph->get_pos(lat, lon);
 }
-
-/**
- * Map the Pos back to coordinates and write them into an pugi::xml_node
- */
-void set_xml_pos(Pos pos, pugi::xml_node* into) {
-	assert(into);
-
-	auto back = get_pos_back(pos);
-	into->append_attribute("lat") = back.first;
-	into->append_attribute("lon") = back.second;
-}
-
 
 void parse_auth_response(pugi::xml_node xml_obj, Buffer* into) {
 	assert(into);
@@ -252,7 +243,6 @@ void parse_sim_end(pugi::xml_node xml_obj, Buffer* into) {
 void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	assert(into);
 	auto xml_self = xml_perc.child("self");
-	auto xml_action = xml_self.child("action");
 
 	int prev_size = into->size();
 	int space_needed = sizeof(Message_Request_Action);
@@ -310,12 +300,15 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	self.team = get_id(xml_self.attribute("team").value());
 	self.pos = get_pos(xml_self);
 	self.role = get_id(xml_self.attribute("role").value());
+	self.facility = get_id(xml_self.attribute("facility").value());
 	narrow(self.charge, xml_self.attribute("charge").as_int());
 	narrow(self.load, xml_self.attribute("load").as_int());
-	self.last_action = Action::get_id(xml_action.attribute("type").value());
-	self.last_action_result = Action::get_result_id(
-		xml_action.attribute("result").value());
 	self.items.init(into);
+    
+	auto xml_action = xml_self.child("action");
+    self.action_type = Action::get_id(xml_action.attribute("type").value());
+    self.action_result = Action::get_result_id(xml_action.attribute("result").value());
+	
 	for (auto xml_item: xml_self.children("items")) {
 		Item_stack item;
 		item.item = get_id(xml_item.attribute("name").value());
@@ -682,175 +675,7 @@ void send_message(Socket& sock, Message_Auth_Request const& mess) {
 	
 	send_xml_message(sock, doc);
 }
-#if 0
-/**
- * Helper, generates the parameter for the Action message.
- */
-char const* generate_action_param(Action const& action) {
-	pugi::xml_document doc;
-	auto param = doc.append_child("param");
 
-	// Helper, write a list of Item_stack to param in the form
-	//   item1="..." item2="..." ... amount1="..." ...
-	auto write_item_stack_list = [&param](Flat_array<Item_stack> const& items) {
-		constexpr static int buf_len = 16;
-		constexpr static char const* str1("item");
-		constexpr static char const* str2("amount");
-			
-		memory_for_messages.reserve_space(
-			buf_len + std::max(strlen(str1), strlen(str2))
-		);
-		char* buf = memory_for_messages.end();
-		std::strcpy(buf, str1);
-		for (int i = 0; i < items.size(); ++i) {
-			std::snprintf(buf + strlen(str1), buf_len, "%d", i + 1);
-			param.append_attribute(buf) = get_string_from_id(items[i].item).c_str();
-		}
-		std::strcpy(buf, str2);
-		for (int i = 0; i < items.size(); ++i) {
-			std::snprintf(buf + strlen(str2), buf_len, "%d", i + 1);
-			param.append_attribute(buf) = items[i].amount;
-		}
-	};
-
-	switch (action.type) {
-	case Action::GOTO: assert(false); break;
-	case Action::GOTO1: {
-		auto const& a = (Action_Goto1 const&) action;
-		param.append_attribute("facility") = get_string_from_id(a.facility).c_str();
-		break;
-	}
-	case Action::GOTO2: {
-		auto const& a = (Action_Goto2 const&) action;
-		set_xml_pos(a.pos, &param);
-		break;
-	}
-	case Action::BUY: {
-		auto const& a = (Action_Buy const&) action;
-		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
-		param.append_attribute("amount") = a.item.amount;
-		break;
-	}
-	case Action::GIVE: {
-		auto const& a = (Action_Give const&) action;
-		param.append_attribute("agent") = get_string_from_id(a.agent).c_str();
-		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
-		param.append_attribute("amount") = a.item.amount;
-		break;
-	}
-	case Action::RECIEVE: {
-		break;
-	}
-	case Action::STORE: {
-		auto const& a = (Action_Store const&) action;
-		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
-		param.append_attribute("amount") = a.item.amount;
-		break;
-	}
-	case Action::RETRIEVE: {
-		auto const& a = (Action_Retrieve const&) action;
-		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
-		param.append_attribute("amount") = a.item.amount;
-		break;
-	}
-	case Action::RETRIEVE_DELIVERED: {
-		auto const& a = (Action_Retrieve_delivered const&) action;
-		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
-		param.append_attribute("amount") = a.item.amount;
-		break;
-	}
-	case Action::DUMP: {
-		auto const& a = (Action_Dump const&) action;
-		param.append_attribute("item") = get_string_from_id(a.item.item).c_str();
-		param.append_attribute("amount") = a.item.amount;
-		break;
-	}
-	case Action::ASSEMBLE: {
-		auto const& a = (Action_Assemble const&) action;
-		param.append_attribute("item") = get_string_from_id(a.item).c_str();
-		break;
-	}
-	case Action::ASSIST_ASSEMBLE: {
-		auto const& a = (Action_Assist_assemble const&) action;
-		param.append_attribute("assembler") = get_string_from_id(a.assembler).c_str();
-		break;
-	}
-	case Action::DELIVER_JOB: {
-		auto const& a = (Action_Deliver_job const&) action;
-		param.append_attribute("job") = get_string_from_id(a.job).c_str();
-		break;
-	}
-	case Action::CHARGE: {
-		break;
-	}
-	case Action::BID_FOR_JOB: {
-		auto const& a = (Action_Bid_for_job const&) action;
-		param.append_attribute("job") = get_string_from_id(a.job).c_str();
-		param.append_attribute("price") = a.price;
-		break;
-	}
-	case Action::POST_JOB1: {
-		auto const& a = (Action_Post_job1 const&) action;
-		param.append_attribute("type") = "auction";
-		param.append_attribute("max_price") = a.max_price;
-		param.append_attribute("fine") = a.fine;
-		param.append_attribute("active_steps") = a.active_steps;
-		param.append_attribute("auction_steps") = a.auction_steps;
-		param.append_attribute("storage") = get_string_from_id(a.storage).c_str();
-		write_item_stack_list(a.items);
-		break;
-	}
-	case Action::POST_JOB2: {
-		auto const& a = (Action_Post_job2 const&) action;
-		param.append_attribute("type") = "priced";
-		param.append_attribute("price") = a.price;
-		param.append_attribute("active_steps") = a.active_steps;
-		param.append_attribute("storage") = get_string_from_id(a.storage).c_str();
-		write_item_stack_list(a.items);
-		break;
-	}
-	case Action::CALL_BREAKDOWN_SERVICE: {
-		break;
-	}
-	case Action::CONTINUE: {
-		break;
-	}
-	case Action::SKIP: {
-		break;
-	}
-	case Action::ABORT: {
-		break;
-	}
-	default: assert(false); break;
-	}
-
-	// Takes the xml in param, writes it, and cuts the "<param " and the " />"
-	// off. If there is a better way to do this, please do!
-	char* start = memory_for_messages.end();
-	Buffer_writer writer {&memory_for_messages};
-	param.print(writer, "", pugi::format_raw);
-	memory_for_messages.emplace_back<char>('\0');
-	char* end = memory_for_messages.end();	  
-	assert(end[-1] == 0);
-	static constexpr char const* str1 = "<param ";
-	assert(strncmp(start, str1, strlen(str1)) == 0);
-	start += strlen(str1);
-	end -= strlen("/>") + 1;
-	assert(strcmp(end, "/>") == 0);
-	*end = 0;
-
-    {
-        char* d = start;
-        char* p = start;
-        while (p != end) {
-            while (*p == '"') ++p;
-            *d++ = *p++;
-        }
-        *d = 0;
-    }
-	return start;
-}
-#endif
 // see header
 void send_message(Socket& sock, Message_Action const& mess) {
     memory_for_messages.trap_alloc(true);
@@ -911,7 +736,7 @@ void send_message(Socket& sock, Message_Action const& mess) {
 		} break;
 		case Action::GOTO2: {
 			cast(Action_Goto2);
-			auto const back = get_pos_back(a.pos);
+			auto const back = current_map_graph->get_pos_back(a.pos);
 			next_arg = back.first;
 			next_arg = back.second;
 		} break;

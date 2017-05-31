@@ -40,6 +40,25 @@ void cancel_blocking_io(std::thread& thread) {
             or GetLastError() == ERROR_NOT_FOUND );
 }
 
+void _assert_win_internal(bool expr, char const* file, int line) {
+    if (not expr) {
+        auto err = GetLastError();
+        char* msg = nullptr;
+        FormatMessage(
+            FORMAT_MESSAGE_ALLOCATE_BUFFER,
+            nullptr,
+            err,
+            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+            (LPTSTR)&msg,
+            0,
+            nullptr
+        );
+        jerr << "Error while calling the Windows API, in " << file << ':' << line << '\n';
+        jerr << msg << '\n';
+        assert(false);
+    }
+}
+
 void Process::init(const char* cmdline, const char* dir) {
     assert(cmdline);
     assert(!*this);

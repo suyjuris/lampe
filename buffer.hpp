@@ -101,6 +101,35 @@ struct Buffer_view {
 	int m_size;
 };
 
+/* TODO Finish or remove
+class Buffer_alloc {
+public:
+    void* alloc_new(u64 min_size, u64* out_size);
+    void* alloc_extend(void* base, u64 cur_size, u64 min_size, u64* out_size);
+    void free(void* base)
+};
+*/
+
+struct Buffer_guard {
+    Buffer const* buf;
+    int size_target;
+
+    Buffer_guard(): buf{nullptr}, size_target{0} {}
+    Buffer_guard(Buffer const& buf, int size_incr);
+
+    Buffer_guard(Buffer_guard&& g) {
+        std::swap(buf, g.buf);
+        std::swap(size_target, g.size_target);
+    }
+    Buffer_guard& operator= (Buffer_guard&& g) {
+        std::swap(buf, g.buf);
+        std::swap(size_target, g.size_target);
+        return *this;
+    }
+    
+    ~Buffer_guard();
+};
+
 /**
  * A handle for a continuous region of memory that can dynamically expand, if
  * necessary. This is like std::vector<char> in many regards. It supports both
@@ -173,6 +202,11 @@ public:
 		}
 	}
 
+    auto reserve_guard(int incr) {
+        reserve_space(incr);
+        return Buffer_guard {*this, incr};
+    }
+    
 	/**
 	 * Append the contents of the memory to this buffer.
 	 */
@@ -189,10 +223,13 @@ public:
 	void append(Buffer_view buffer) {
 		append(buffer.data(), buffer.size());
 	}
+	void append0() {
+		append("", 1);
+	}
 
 	void pop_front(int i) {
 		m_size -= i;
-		std::memcpy(m_data, m_data + i, m_size);
+		std::memmove(m_data, m_data + i, m_size);
 	}
 
 	/**
@@ -283,6 +320,11 @@ public:
 		reserve(offset + sizeof(T));
 		return *(T*)(m_data + offset);
 	}
+	template <typename T>
+	T const& get_c(int offset = 0) const {
+        assert(size() >= (int)(offset + sizeof(T)));
+		return *(T const*)(m_data + offset);
+	}
 	/**
 	 * Like get, but constructs the object in-place.
 	 */
@@ -339,13 +381,33 @@ public:
 		i.close();
 	}
 
+    bool inside(void const* ptr) const {
+        return (void const*)begin() <= ptr and ptr < (void const*)end();
+    }
+
 private:
 	char* m_data = nullptr;
 	int m_size = 0, m_capacity = 0;
 };
 
+inline Buffer_guard::Buffer_guard(Buffer const& buf, int size_incr):
+    buf{&buf}, size_target{buf.size() + size_incr} {}
+inline Buffer_guard::~Buffer_guard() {
+    if (buf) { assert(buf->size() == size_target); }
+}
 
 inline Buffer_view::Buffer_view(Buffer const& buf):
 	Buffer_view{buf.data(), buf.size()} {}
+
+
+/* TODO: Finish or remove
+class Nibuf: public Buffer {
+    using Buffer::Buffer;
+        
+	void reserve(int newcap) override;
+	void free() override;
+	void pop_front(int i) override;
+}
+*/
 
 } /* end of namespace jup */

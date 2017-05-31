@@ -95,6 +95,8 @@ struct Message_Request_Action: Message_Server2Client {
  */
 void init_messages(std::ostream* _dump_xml_output = nullptr);
 
+void set_messages_graph(Graph* graph);
+
 u8  register_id  (Buffer_view str);
 u16 register_id16(Buffer_view str);
 

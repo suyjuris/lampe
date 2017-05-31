@@ -49,12 +49,6 @@ struct Action {
 		"post_job", "dump", "charge", "recharge", "continue", "skip", "abort",
 		"unknownAction", "randomFail", "noAction", "gather"
     };
-	static constexpr char const* action_args[] = {
-		"!", "si", "", "i", "i", "i",
-		"s", "s", "i", "S", "SU",
-		"UusI", "i", "", "", "", "", "",
-		"", "", "", "", "", "s", "p"
-	};
 	enum Action_result: u8 {
 		SUCCESSFUL = 0, /* guarantee this, so that users may assert */
 		FAILED_LOCATION, FAILED_UNKNOWN_ITEM, FAILED_UNKNOWN_AGENT,
@@ -258,8 +252,9 @@ struct Entity {
 struct Self : Entity {
 	u16 charge;
 	u16 load;
-	u8 last_action;
-	u8 last_action_result;
+	u8 action_type;
+	u8 action_result;
+    u8 facility;
 	Flat_array<Item_stack> items;
 };
 

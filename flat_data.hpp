@@ -227,29 +227,50 @@ struct Flat_array {
 		
 	Flat_array(): start{0} {}
 	Flat_array(Buffer* containing) { init(containing); }
+    
+    static int total_space(int size) {
+        return sizeof(Flat_array<T, Offset_t, Size_t>) + extra_space(size);
+    }
+    static int extra_space(int size) {
+        return sizeof(Size_t) + sizeof(T) * size;
+    }
 
 	/**
 	 * Initializes the Flat_array by having it point to the end of the
 	 * Buffer. The object must be contained in the Buffer!
 	 */
 	void init(Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			   and (void*)this < (void*)containing->end());
+		assert(containing and containing->inside(this));
 		narrow(start, containing->end() - (char*)this);
+        // This may invalidate us, but that is okay
 		containing->emplace_back<Size_t>();
 	}
 
 	void init(Flat_array<Type, Offset_t, Size_t> const& orig, Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this < (void*)containing->end());
+		assert(containing and containing->inside(this) and not containing->inside(&orig));
 		narrow(start, containing->end() - (char*)this);
-		containing->append((char const*)&orig.m_size(), sizeof(Size_t) + orig.size() * sizeof(T));
+        // This may invalidate us, but that is okay (note that orig is still valid)
+		containing->append((char const*)&orig.m_size(), extra_space(orig.size()));
+	}
+
+    void init_safe(Flat_array<Type, Offset_t, Size_t> const& orig, Buffer* containing) {
+        if (containing->inside(&orig)) {
+            int offset_orig = (char const*)&orig.m_size() - containing->begin();
+            int bytesize = extra_space(orig.size());
+            narrow(start, containing->end() - (char*)this);
+            
+            // This may invalidate us, but that is okay
+            auto g = containing->reserve_guard(bytesize);
+            containing->append(containing->begin() + offset_orig, bytesize);
+        } else {
+            init(orig, containing);
+        }
 	}
 
 	template<typename L_Offset_t, typename L_Offset_big_t>
 	void init(Flat_list<T, L_Offset_t, L_Offset_big_t> const& orig, Buffer* containing) {
+		assert(containing and containing->inside(this) and not containing->inside(&orig));
+        assert(containing->space() >= extra_space(orig.size()));
 		init(containing);
 		L_Offset_big_t next = orig.first;
 		char const* ptr = (char const*)&orig;
@@ -288,9 +309,7 @@ struct Flat_array {
 	}
 
 	T& emplace_back(Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)end() == (void*)containing->end());
+		assert(containing and containing->inside(this));
 		++m_size();
 		return containing->emplace_back<T>();
 	}
@@ -301,9 +320,7 @@ struct Flat_array {
 	 * the Buffer, including the one you use for this object!
 	 */
 	void push_back(T const& obj, Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			   and (void*)end() == (void*)containing->end());
+		assert(containing and containing->inside(this));
 		++m_size();
 		containing->emplace_back<T>(obj);
 	}
@@ -357,7 +374,7 @@ struct Flat_array_ref_base {
         element_size{sizeof(T)}
     {
         narrow(offset, (char*)&arr - containing.data()); 
-        assert(containing.begin() <= (char*)&arr and (char*)&arr < containing.end());
+        assert(containing.inside(&arr));
     }
 
     auto& ref(Buffer& container) const {
@@ -403,7 +420,6 @@ struct Diff_flat_arrays_base {
     template <typename Flat_array_t>
     void register_arr(Flat_array_t const& arr) {
         refs().push_back(Flat_array_ref {arr, *container}, &diffs);
-        jerr << refs().back().first_byte(*container) << ' ' << refs().back().last_byte(*container) << '\n';
         std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
             return a.first_byte(*container) < b.first_byte(*container);
         });
@@ -452,12 +468,6 @@ struct Diff_flat_arrays_base {
     Flat_array<Flat_array_ref>& refs() { return diffs.get<Flat_array<Flat_array_ref>>(); }
 
     void apply() {
-        for (int i = 0; i < refs().size() - 1; ++i) {
-            if (refs()[i].last_byte(*container) > refs()[i+1].last_byte(*container)) {
-                // Call init in the same order as the Flat_arrays appear in memory
-                assert(false /* Array not monotonic.*/);
-            }
-        }
         if (refs().size()) {
             assert(refs().back().last_byte(*container) == container->size());
         }
@@ -465,6 +475,8 @@ struct Diff_flat_arrays_base {
             u8 type = diffs[i];
             u8 ref  = diffs[i+1];
             int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
+            int remove_off = type == REMOVE ? - (refs()[ref].ref(*container).size()-1
+                - diffs[i+2] ) * refs()[ref].element_size : 0;
             for (int j = 0; j < refs().size(); ++j) {
                 if (j == ref) continue;
                 if (refs()[j].first_byte(*container) < refs()[ref].last_byte(*container)
@@ -472,9 +484,10 @@ struct Diff_flat_arrays_base {
                     refs()[j].ref(*container).start += adjust;
                 }
             }
-            std::memmove(refs()[ref].ref(*container).end() + adjust,
-                         refs()[ref].ref(*container).end(),
-                         container->end() - (char*)refs()[ref].ref(*container).end());
+            std::memmove(refs()[ref].ref(*container).end() + remove_off + adjust,
+                         refs()[ref].ref(*container).end() + remove_off,
+                         container->end() - (char*)refs()[ref].ref(*container).end() - remove_off);
+            container->addsize(adjust);
             
             if (type == ADD) {
                 std::memcpy(refs()[ref].ref(*container).end(),
