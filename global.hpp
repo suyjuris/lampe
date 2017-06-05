@@ -13,7 +13,6 @@
 
 // lampe general headers
 #include <algorithm>
-#include <cassert>
 #include <cmath>
 #include <csignal>
 #include <cstdint>
@@ -40,17 +39,14 @@
 #include "pugixml.hpp"
 
 // win32 libraries
-#include "global_win32.hpp"
+#include <io.h>
+#include <winsock2.h>
+#include <windows.h>
+#include <ws2tcpip.h>
 
-#define BARRIER "--------------------------------"
+#include "stack_walker.hpp"
 
-//#define SOFTASSERT
-#ifndef SOFTASSERT
-#include <cassert>
-#else
-void assert(bool expr);
-#endif
-
+#define assert(expr) ((expr) ? (void)0 : jup::_assert(#expr, __FILE__, __LINE__))
 
 namespace jup {
 
@@ -67,6 +63,9 @@ using u8 = std::uint8_t;
 // Zero terminated, read-only string
 using c_str = char const*;
 
+// Custom assertion, prints stack trace
+void _assert(c_str expr_str, c_str file, int line);
+
 // Narrow a value, asserting that the conversion is valid.
 template <typename T, typename R>
 inline void narrow(T& into, R from) {
@@ -74,6 +73,8 @@ inline void narrow(T& into, R from) {
 	assert(static_cast<R>(into) == from and (into > 0) == (from > 0));
 }
 
+// Closes the program
+void die();
 
 // Use these facilities for general output. They may redirect into a logfile later on.
 extern std::ostream& jout;

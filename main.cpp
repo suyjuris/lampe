@@ -15,7 +15,7 @@ void print_usage(c_str argv0) {
 	jerr << "Usage:\n  " << argv0 << " [options]\n  " << argv0 << " --help\n\n"
 		<< "Options:\n"
 		<< " " << MASSIM_LOC << " [path]  The location of the massim server, used to start the int"
-		<< "ernal server wrapper. (Should contain a scripts/ and a target/ subdirectory.)\n"
+		<< "ernal server wrapper. (Should contain a server/ subdirectory.)\n"
 		<< " " << CONFIG_LOC << " [path]  The location of a specific configuration to use for star"
 		<< "ting the internal server (there is a default value).\n"
 		<< " " << HOST_IP << " [ip]    The IP address for connecting with an external server.\n"
@@ -283,6 +283,9 @@ int main(int argc, c_str const* argv) {
                     } else {
                         init_messages();
                     }
+                    if (not server->load_maps()) {
+                        return 2;
+                    }
                     Socket_context socket_context;
                     server->register_mothership(&mothership);
                     server->run_simulation();
@@ -291,15 +294,20 @@ int main(int argc, c_str const* argv) {
                 }
                 jout << "\nwriting to file... ";
                 Buffer b;
-                b.read_from_file(options.statistics_file.data());
-                if (b.size() == 0) {
+                if (not file_exists(options.statistics_file)) {
+                    jout << "Statistics file does not exist, will be initialized.\n";
+                    b.emplace_back<u32>(0x446a63dcu); // magic number
                     b.emplace_back<Flat_list<Game_statistic, u16, u32>>();
-                    b.get<Flat_list<Game_statistic, u16, u32>>(0).init(&b);
+                    b.get<Flat_list<Game_statistic, u16, u32>>(4).init(&b);
+                } else {
+                    b.read_from_file(options.statistics_file);
                 }
-                auto& list = b.get<Flat_list<Game_statistic, u16, u32>>(0);
-
-                list.push_back(Buffer_view(mothership.get_statistic()), &b);
-                b.write_to_file(options.statistics_file.data());
+                assert(b.get<u32>(0) == 0x446a63dc); // magic number
+                
+                auto& list = b.get<Flat_list<Game_statistic, u16, u32>>(4);
+                list.push_back(Buffer_view{mothership.get_statistic()}, &b);
+                
+                b.write_to_file(options.statistics_file);
                 jout << "done\n\n";
             } catch (...) {
                 jerr << "Error occured, starting next simulation" << endl;

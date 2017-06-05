@@ -1,17 +1,20 @@
 
 # Generic C++ Makefile
 
+# cv2pdb is required to build this project. You can use 'make init' to install a prebuild binary.
+
 TARGET = jup
-LIBS = -lWs2_32 -static-libstdc++ -static-libgcc -static
+LIBS = -lWs2_32 -lversion -static-libstdc++ -static-libgcc -static
 CXX = g++
 CXXFLAGS = -g -Wall -Werror -pedantic -fmax-errors=2
 CPPFLAGS = -std=c++1y
 LDFLAGS  = -Wall
 EXEEXT = .exe
+CV2PDB = cv2pdb
 TMPDIR = build_files
 PRE_HEADER = $(TMPDIR)/global.hpp.gch
 
-.PHONY: default all clean test
+.PHONY: default all clean test init
 .SUFFIXES:
 
 all: default
@@ -39,8 +42,16 @@ default: $(TARGET)
 
 .PRECIOUS: $(TARGET) $(OBJECTS)
 
-$(TARGET): $(OBJECTS)
+$(TMPDIR)/$(TARGET): $(OBJECTS)
 	$(CXX) $(OBJECTS) $(LDFLAGS) $(LIBS) -o $@
+
+$(TARGET): $(TMPDIR)/$(TARGET)
+	$(CV2PDB) $<$(EXEEXT) $@$(EXEEXT)
+
+init:
+	wget https://ci.appveyor.com/api/projects/rainers/visuald/artifacts/cv2pdb.exe?job=Environment%\
+	3A%20os%3DVisual%20Studio%202013%2C%20VS%3D12%2C%20APPVEYOR_BUILD_WORKER_IMAGE%3DVisual%20Studi\
+	o%202015 -O /usr/local/bin/cv2pdb.exe
 
 clean:
 	-rm -f *.o *.d *~

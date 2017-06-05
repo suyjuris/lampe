@@ -25,3 +25,5 @@ out
 doku/*
 .gdbinit
 build_files/
+stats
+**/*.pdb

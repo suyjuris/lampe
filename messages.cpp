@@ -604,6 +604,7 @@ u8 get_next_message(Socket& sock, Buffer* into) {
         
         prev_size = memory_for_messages.size();
 		sock.recv(&memory_for_messages);
+        assert(sock);
 		assert(memory_for_messages.size() > prev_size);
 	}
 

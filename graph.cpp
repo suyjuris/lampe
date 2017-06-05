@@ -1,5 +1,6 @@
 
 #include "graph.hpp"
+#include "debug.hpp"
 
 namespace jup {
 
@@ -133,7 +134,7 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 	float lon_radius = std::cos((map_max_lat + map_min_lat) / 360. * M_PI) * radius_earth;
 	auto pmin = get_pos_back({0, 0});
 	auto pmax = get_pos_back({255, 255});
-	map_scale_lat = (pmax.first  - pmin.first ) / 180.f * (radius_earth * M_PI) / 255.f;
+	map_scale_lat = (pmax.first - pmin.first ) / 180.f * (radius_earth * M_PI) / 255.f;
 	map_scale_lon = (pmax.second - pmin.second) / 180.f * (lon_radius   * M_PI) / 255.f;
 	file.close();
 

@@ -64,6 +64,7 @@ void Socket::init(Buffer_view address, Buffer_view port) {
 	if (not ptr) return;
 
 	initialized = true;
+    err = false;
 }
 
 // see header
@@ -80,6 +81,7 @@ void Socket::send(Buffer_view buf) {
 	auto code = ::send(get_sock(*this).sock, buf.data(), buf.size(), 0);
 	if (code == SOCKET_ERROR) {
 		jerr << "Warning: send failed: " << WSAGetLastError() << '\n';
+        err = true;
 		close();
 	}
 }
@@ -104,6 +106,7 @@ int Socket::recv(Buffer* into) {
             
 			jerr << "Warning: recv failed: " << WSAGetLastError() << '\n';
 			close();
+            err = true;
 			return total_count;
 		} else if (result == 0) {
             jerr << "Warning: recv returned 0\n";

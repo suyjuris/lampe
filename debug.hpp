@@ -66,10 +66,32 @@ struct Debug_tabulator {
 
 extern Debug_tabulator tab;
 
+struct Repr {
+    Buffer_view data;
+};
+
 inline Debug_ostream& operator< (Debug_ostream& out, Debug_tabulator const& tab) {
 	for (u8 i = 0; i < tab.n; i++) {
 		out.out << "    ";
 	}
+	return out;
+}
+inline Debug_ostream& operator< (Debug_ostream& out, Repr r) {
+    out.out << '"';
+	for (char c: r.data) {
+        if (c == '\n') {
+            out.out << "\\n";
+        } else if (c == '\t') {
+            out.out << "\\t";
+        } else if (c == '\0') {
+            out.out << "\\0";
+        } else if (' ' <= c and c <= '~') {
+            out.out << c;
+        } else {
+            out.printf("\\x%02x", c);
+        }
+	}
+    out.out << "\" ";
 	return out;
 }
 
@@ -90,6 +112,9 @@ Debug_ostream& operator< (Debug_ostream& out, T const (&arr)[n]) {
 template <typename T>
 Debug_ostream& operator< (Debug_ostream& out, T const& obj) {
 	out.out << obj << ' '; return out;
+}
+inline Debug_ostream& operator< (Debug_ostream& out, Buffer_view b) {
+	return out.printf(b.c_str());
 }
 inline Debug_ostream& operator< (Debug_ostream& out, char const* s) {
 	return out.printf(s);

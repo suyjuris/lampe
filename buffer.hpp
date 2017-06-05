@@ -1,4 +1,3 @@
-
 #pragma once
 
 namespace jup {
@@ -362,22 +361,22 @@ public:
 		return data()[pos];
 	}
 
-	void write_to_file(char const* filename) {
+	void write_to_file(Buffer_view filename) {
 		std::ofstream o;
-		o.open(filename, std::ios::out | std::ios::binary);
+		o.open(filename.c_str(), std::ios::out | std::ios::binary);
 		o.write(data(), size());
 		o.close();
 	}
 
-	void read_from_file(char const* filename) {
+	void read_from_file(Buffer_view filename) {
 		std::ifstream i;
-		i.open(filename, std::ios::in | std::ios::binary);
-		char c = i.get();
-		while (!i.fail()) {
-			emplace_back<char>(c);
-			c = i.get();
-		}
-		assert(i.eof());
+		i.open(filename.c_str(), std::ios::binary | std::ios::ate);
+        std::streamsize fsize = i.tellg();
+        i.seekg(0, std::ios::beg);
+        reserve_space(fsize);
+        assert(i.read(end(), fsize));
+        assert(i.gcount() == fsize);
+        addsize(fsize);
 		i.close();
 	}
 
@@ -399,15 +398,5 @@ inline Buffer_guard::~Buffer_guard() {
 inline Buffer_view::Buffer_view(Buffer const& buf):
 	Buffer_view{buf.data(), buf.size()} {}
 
-
-/* TODO: Finish or remove
-class Nibuf: public Buffer {
-    using Buffer::Buffer;
-        
-	void reserve(int newcap) override;
-	void free() override;
-	void pop_front(int i) override;
-}
-*/
 
 } /* end of namespace jup */

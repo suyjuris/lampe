@@ -1,4 +1,6 @@
 
+#include "stack_walker.hpp"
+
 #include "server.hpp"
 #include "messages.hpp"
 #include "debug.hpp"
@@ -59,6 +61,12 @@ bool Server_options::check_valid() {
             return false;
         }
     }
+    
+    if (ship == SHIP_STATS and not statistics_file) {
+        jerr << "Mode statistics was requested, but no statistics file was specified."
+                " You may want to use the " << STATS_FILE << " option.\n";
+        return false;
+    }
 
     for (size_t i = 0; i + 1 < agents.size(); ++i) {
         for (size_t j = i + 1; j < agents.size(); ++j) {
@@ -89,6 +97,7 @@ void handle_sigint(int sig) {
     } else {
         assert(false);
     }
+    
     program_closing = true;
     std::signal(SIGABRT, SIG_DFL);
     delete server;
@@ -117,14 +126,13 @@ Server::Server(Server_options const& op): options{op} {
              << options.host_port.c_str() << "\n";
     }
     
+    // Register signal handling
+    assert(std::signal(SIGINT,  &handle_sigint) != SIG_ERR);
+    assert(std::signal(SIGABRT, &handle_sigint) != SIG_ERR);
+    assert(std::signal(SIGTERM, &handle_sigint) != SIG_ERR);
+    assert(std::signal(SIGFPE,  &handle_sigint) != SIG_ERR);
+        
     if (op.use_internal_server) {
-
-        // Register signal handling
-        assert(std::signal(SIGINT,  &handle_sigint) != SIG_ERR);
-        assert(std::signal(SIGABRT, &handle_sigint) != SIG_ERR);
-        assert(std::signal(SIGTERM, &handle_sigint) != SIG_ERR);
-        assert(std::signal(SIGFPE,  &handle_sigint) != SIG_ERR);
-
         if (!is_debugged()) {
             stdin_listener = std::thread {&sigint_from_stdin};
         }
@@ -134,13 +142,13 @@ Server::Server(Server_options const& op): options{op} {
 
         int package_pattern = general_buffer.size();
         general_buffer.append(op.massim_loc);
-        general_buffer.append("\\server\\server-*.jar");
+        general_buffer.append("\\server\\server-*s.jar");
         general_buffer.append("", 1);
                
         int package = general_buffer.size();
-        general_buffer.append("..\\server\\");
-        if (!find_file_not_containing(general_buffer.data() + package_pattern,
-                                      {"sources", "javadoc"}, &general_buffer)) {
+        if (!find_file_not_containing(
+            general_buffer.data() + package_pattern, {"sources", "javadoc"}, &general_buffer)
+        ) {
             jerr << "Could not find server jar. You specified the location:\n";
             jerr << "  " << op.massim_loc.c_str() << '\n';
             assert(false);
@@ -180,9 +188,7 @@ Server::Server(Server_options const& op): options{op} {
         jerr << "Using configuration: " << general_buffer.data() + config << '\n';
 
         int cmdline = general_buffer.size();
-        general_buffer.append("java -ea -Dcom.sun.management.jmxremote -Xss2000k -Xmx600M -DentityE"
-                              "xpansionLimit=1000000 -DelementAttributeLimit=1000000 -Djava.rmi.ser"
-                              "ver.hostname=TST -jar ");
+        general_buffer.append("java -jar ");
         general_buffer.append(general_buffer.data() + package);
         general_buffer.append(" -conf ");
         general_buffer.append(general_buffer.data() + config);
@@ -236,14 +242,15 @@ bool Server::load_maps() {
     }
 
     do {
-        if(not (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) {
-            continue;
-        }
+        if (std::strcmp(find_data.cFileName, "." ) == 0) continue;
+        if (std::strcmp(find_data.cFileName, "..") == 0) continue;
+        if (not (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
 
         int nodes_offset  = general_buffer.size();
         general_buffer.append(options.massim_loc);
         general_buffer.append("\\server\\graphs\\");
         general_buffer.append(find_data.cFileName);
+        general_buffer.append("\\");
         general_buffer.append("nodes");
         general_buffer.append0();
 
@@ -251,6 +258,7 @@ bool Server::load_maps() {
         general_buffer.append(options.massim_loc);
         general_buffer.append("\\server\\graphs\\");
         general_buffer.append(find_data.cFileName);
+        general_buffer.append("\\");
         general_buffer.append("edges");
         general_buffer.append0();
         
@@ -377,10 +385,11 @@ void Server::run_simulation() {
                     }
                 }
                 if (not found) {
-                    jerr << "Error: Could not find map " << name << '\n';
+                    jerr << "Error: Could not find map " << name.c_str() << '\n';
                     assert(false);
                     return;
                 }
+                jout << "Initialized map " << name.c_str() << '\n';
             }
             
             mess.simulation.id = register_id(agents()[i].name);
@@ -445,6 +454,11 @@ void Server::run_simulation() {
                     );
                 send_message(i.socket, answ);
             }
+        }
+        
+        if (options.use_internal_server) {
+            proc.write_to_buffer = false;
+            proc.write_to_stdout = false;
         }
                     
         for (Agent_data& i: agents()) {

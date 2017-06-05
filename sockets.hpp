@@ -53,7 +53,7 @@ struct Socket {
 	 * Whether the socket is valid
 	 */
 	bool is_valid() const { return initialized; }
-	operator bool() const { return is_valid(); }
+	operator bool() const { return initialized and not err; }
 
 	/**
 	 * Send data over the socket.
@@ -71,8 +71,9 @@ struct Socket {
      */
     int get_id() const;
 
-	
+    
 	bool initialized = false;
+    bool err = false;
 	
 	// Only guaranteed to contain valid data when the socket is valid is set,
 	// else UNDEFINED. The contents are implementation defined.

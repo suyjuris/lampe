@@ -1,4 +1,5 @@
 
+#include "debug.hpp"
 #include "system.hpp"
 
 namespace jup {
@@ -36,26 +37,34 @@ void cancel_blocking_io(std::thread& thread) {
     // Very dirty. Assume that threads are implemented using some kind of
     // pthread variant (which is true under mingw) and call an internal function
     // to get the Windows handle.
-    assert( CancelSynchronousIo(pthread_gethandle(thread.native_handle()))
+    assert_win( CancelSynchronousIo(pthread_gethandle(thread.native_handle()))
             or GetLastError() == ERROR_NOT_FOUND );
+}
+
+// see header
+void write_last_errmsg() {
+    auto err = GetLastError();
+    char* msg = nullptr;
+    FormatMessage(
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
+        nullptr,
+        err,
+        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+        (LPTSTR)&msg,
+        0,
+        nullptr
+    );
+    int l = std::strlen(msg);
+    while (l and (msg[l-1] == '\n' or msg[l-1] == '\x0d')) msg[--l] = 0;
+    jerr << "Error: " << msg << " (" << err << ")\n";
 }
 
 void _assert_win_internal(bool expr, char const* file, int line) {
     if (not expr) {
-        auto err = GetLastError();
-        char* msg = nullptr;
-        FormatMessage(
-            FORMAT_MESSAGE_ALLOCATE_BUFFER,
-            nullptr,
-            err,
-            MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-            (LPTSTR)&msg,
-            0,
-            nullptr
-        );
-        jerr << "Error while calling the Windows API, in " << file << ':' << line << '\n';
-        jerr << msg << '\n';
-        assert(false);
+        jerr << "\nError while calling the Windows API\nFile: " << file << ", Line "
+             << line << "\n\n";
+        write_last_errmsg();
+        std::abort();
     }
 }
 
@@ -71,11 +80,11 @@ void Process::init(const char* cmdline, const char* dir) {
     sa.bInheritHandle = true;
     sa.lpSecurityDescriptor = nullptr;
 
-    assert(CreatePipe(&stdin_read,  &stdin_write,  &sa, 0));
-    assert(CreatePipe(&stdout_read, &stdout_write, &sa, 0));
+    assert_win(CreatePipe(&stdin_read,  &stdin_write,  &sa, 0));
+    assert_win(CreatePipe(&stdout_read, &stdout_write, &sa, 0));
     
-    assert(SetHandleInformation(stdin_write, HANDLE_FLAG_INHERIT, 0));
-    assert(SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0));
+    assert_win(SetHandleInformation(stdin_write, HANDLE_FLAG_INHERIT, 0));
+    assert_win(SetHandleInformation(stdout_read, HANDLE_FLAG_INHERIT, 0));
 
     STARTUPINFO startup_info;
     memset(&proc_info,    0, sizeof(proc_info   ));
@@ -88,8 +97,8 @@ void Process::init(const char* cmdline, const char* dir) {
     startup_info.hStdInput = stdin_read;
     startup_info.dwFlags |= STARTF_USESTDHANDLES;
 
-    assert(CreateProcess(0, const_cast<LPSTR>(cmdline), nullptr, nullptr, true,
-                         0, nullptr, dir, &startup_info, &proc_info));
+    assert_win(CreateProcess(0, const_cast<LPSTR>(cmdline), nullptr, nullptr, true,
+        0, nullptr, dir, &startup_info, &proc_info));
 
     write = stdin_write;
     read  = stdout_read;
@@ -133,6 +142,40 @@ void Process::send(Buffer_view buf) {
     }
 }
 
+void delete_empty_lines(char* buf, int* len, bool* last) {
+    assert(len and last);
+    
+    if (*len) {
+        // i is the destination of the last copy, j is the first byte not yet visited
+        int i, j;
+        if (*last and buf[0] == '\n') {
+            for (j = 0; j < *len; ++j) {
+                if (buf[j] != '\n') break;
+            }
+            if (j == *len) {
+                *len = 0;
+                buf[0] = 0;
+                return;
+            }
+            buf[0] = buf[j++];
+            i = 0;
+        } else {
+            for (i = 0; i + 1 < *len; ++i) {
+                if (buf[i] == '\n' and buf[i+1] == '\n') break;
+            }
+            j = i+2;
+        }
+        for (; j < *len; ++j) {
+            if (buf[i] != '\n' or buf[j] != '\n') {
+                buf[++i] = buf[j];
+            }
+        }
+        *last = buf[i] == '\n';
+        *len = ++i;
+        buf[*len] = 0;
+    }
+}
+
 void Process::fillBuffer() {
     static char buf[1024];
     
@@ -152,6 +195,7 @@ void Process::fillBuffer() {
                 assert(false);
             }
         }
+        
         if (write_to_stdout) {
             jout.write(buf, len);
             jout.flush();

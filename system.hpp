@@ -31,6 +31,11 @@ bool file_exists(Buffer_view path);
 void cancel_blocking_io(std::thread& thread);
 
 /**
+ * Write the last error to stderr
+ */
+void write_last_errmsg();
+
+/**
  * Test whether expr is true. If it is not, the last Windows error is queried
  * (via GetLastError) and printed.
  */

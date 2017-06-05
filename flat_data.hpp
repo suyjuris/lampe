@@ -150,9 +150,7 @@ struct Flat_list {
 	* all pointers to the Buffer, including the one you use for this object!
 	*/
 	void push_back(Buffer_view obj, Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this <= (void*)containing->end());
+		assert(containing and containing->inside(this));
 		if (first == 0) {
 			first = containing->end() - (char*)this;
 		} else {

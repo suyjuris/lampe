@@ -3,6 +3,33 @@
 
 namespace jup {
 
+/*
+void test_delete_empty_lines() {    
+    bool last;
+    {
+        char buf[] = "1\n2\n\n3\n\n\n4\n\n";
+        int len = sizeof(buf) - 1;
+        delete_empty_lines(buf, &len, &last);
+        jdbg < Repr{buf} < len < last ,0;
+    } {
+        char buf[] = "\n\n5\n2\n\n3\n\n\n4";
+        int len = sizeof(buf) - 1;
+        delete_empty_lines(buf, &len, &last);
+        jdbg < Repr{buf} < len < last ,0;
+    } {
+        char buf[] = "\n";
+        int len = sizeof(buf) - 1;
+        delete_empty_lines(buf, &len, &last);
+        jdbg < Repr{buf} < len < last ,0;
+    } {
+        char buf[] = "\n";
+        int len = sizeof(buf) - 1;
+        delete_empty_lines(buf, &len, &last);
+        jdbg < Repr{buf} < len < last ,0;
+    }
+}
+*/
+
 void test_flat_diff() {
     Buffer b;
     b.reserve(1024);
@@ -34,7 +61,6 @@ void test_flat_diff() {
     diff.remove(lst2, 0);
     diff.apply();
     jdbg < lst ,0;
-
 }
 
 } /* end of namespace jup */
