@@ -380,6 +380,7 @@ void Server::run_simulation() {
                 for (Graph& graph: graphs) {
                     if (name == graph.name()) {
                         set_messages_graph(&graph);
+						mothership->init(&graph);
                         found = true;
                         break;
                     }

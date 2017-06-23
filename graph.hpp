@@ -9,8 +9,8 @@ struct Edge_iterator;
 struct Graph;
 struct Edge;
 
-constexpr u32 node_invalid = 0xffff;
-constexpr u32 edge_invalid = 0xffff;
+constexpr u32 node_invalid = 0xffffffff;
+constexpr u32 edge_invalid = 0xffffffff;
 
 struct Edge_iterator: public std::iterator<Edge, std::forward_iterator_tag> {
     Graph const* graph = nullptr;
@@ -22,6 +22,7 @@ struct Edge_iterator: public std::iterator<Edge, std::forward_iterator_tag> {
         graph{graph}, edge{edge}, is_nodea{is_nodea} {}
     
     Edge const& operator*() const;
+	Edge const* operator->() const { return &**this; }
 	Edge_iterator& operator++();
 
     bool operator==(Edge_iterator const& other) const {
@@ -45,17 +46,33 @@ struct Node {
 	u32 edge;
 	Pos pos;
 
-    Node_range const iter(Graph const& graph);
+    Node_range const iter(Graph const& graph) const;
 };
 
 struct Edge {
 	u32 nodea, nodeb, linka, linkb, dist;
 };
 
+struct Graph_position {
+	enum Graph_position_type {
+		invalid = 0, on_node, on_edge
+	};
+	Graph_position_type type;
+	union {
+		u32 node;
+		u32 edge;
+	};
+	u16 eps;
+	u8 edge_pos;
+
+	Graph_position(Graph_position_type type = invalid, u32 val = node_invalid, u16 e = 0, u8 r = 0)
+		: type{ type }, node{ val }, eps{ e }, edge_pos{ r } {}
+};
 
 struct Graph {
     using Nodes_t = Flat_array<Node, u32, u32>;
     using Edges_t = Flat_array<Edge, u32, u32>;
+	using Route_t = Flat_array<u32, u16, u16>;
 
     /**
      * Reads the GraphHopper graph from node_filename and edge_filename into this graph. May be
@@ -67,6 +84,11 @@ struct Graph {
      * Converts a lat, lon pair into a Pos
      */
     Pos get_pos(double lat, double lon) const;
+
+	Graph_position pos_node(Pos pos) const;
+	Graph_position pos_edge(Pos pos) const;
+	u32 dijkstra(u32 s, u32 t, Buffer* into = nullptr) const;
+	u32 dijkstra(Graph_position s, Graph_position t, Buffer* into = nullptr) const;
     
     /**
      * Returns the actual coordinates from a position
