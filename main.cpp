@@ -6,6 +6,7 @@
 #include "server.hpp"
 #include "statistics.hpp"
 #include "debug.hpp"
+#include "test.hpp"
 
 using namespace jup;
 
@@ -250,7 +251,26 @@ int main(int argc, c_str const* argv) {
 		return 1;
 	}
 
-	if (options.ship != Server_options::SHIP_STATS) {
+	if (options.ship == Server_options::SHIP_TEST) {
+		auto server_wrapper = std::make_unique<Server>(options);
+		server = server_wrapper.get();
+		Mothership_test mothership;
+		if (options.dump_xml) {
+			dump_xml = std::ofstream{ options.dump_xml.c_str() };
+			init_messages(&dump_xml);
+		} else {
+			init_messages();
+		}
+
+		if (not server->load_maps()) {
+			return 2;
+		}
+
+		Socket_context socket_context;
+		server->register_mothership(&mothership);
+		server->run_simulation();
+
+	} else if (options.ship == Server_options::SHIP_PLAY) {
 		auto server_wrapper = std::make_unique<Server>(options);
 		server = server_wrapper.get();
 		Mothership_statistics mothership;

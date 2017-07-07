@@ -23,6 +23,7 @@ struct Game_statistic {
 
 struct Mothership_statistics : Mothership {
 
+	void init(Graph const* graph) override;
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
 	void pre_request_action() override;
 	void pre_request_action(u8 agent, Percept const& perc, int perc_size) override;
