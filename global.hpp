@@ -10,6 +10,10 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 
+#ifndef __USE_W32_SOCKETS
+#define __USE_W32_SOCKETS
+#endif
+
 
 // lampe general headers
 #include <algorithm>
@@ -44,9 +48,19 @@
 #include <windows.h>
 #include <ws2tcpip.h>
 
-#include "stack_walker.hpp"
+#ifdef NDEBUG
 
-#define assert(expr) ((expr) ? (void)0 : jup::_assert(#expr, __FILE__, __LINE__))
+#define assert(expr) (void)__builtin_expect(not (expr), 0)
+#define assert_errno(expr) assert(expr)
+#define assert_win(expr) assert(expr)
+
+#else
+
+#define assert(expr) ((expr) ? (void)0 : ::jup::_assert_fail(#expr, __FILE__, __LINE__))
+#define assert_errno(expr) ((expr) ? (void)0 : ::jup::_assert_errno_fail(#expr, __FILE__, __LINE__))
+#define assert_win(expr) ((expr) ? (void)0 : ::jup::_assert_win_fail(#expr, __FILE__, __LINE__))
+
+#endif
 
 namespace jup {
 
@@ -60,11 +74,16 @@ using u16 = std::uint16_t;
 using s8 = std::int8_t;
 using u8 = std::uint8_t;
 
+// Custom assertions, prints stack trace
+[[noreturn]] void _assert_fail(char const* expr_str, char const* file, int line);
+[[noreturn]] void _assert_errno_fail(char const* expr_str, char const* file, int line);
+[[noreturn]] void _assert_win_fail(char const* expr_str, char const* file, int line);
+
 // Zero terminated, read-only string
 using c_str = char const*;
 
-// Custom assertion, prints stack trace
-void _assert(c_str expr_str, c_str file, int line);
+// Prints the error nicely into the console
+void err_msg(char const* msg, int code = 0);
 
 // Narrow a value, asserting that the conversion is valid.
 template <typename T, typename R>
@@ -74,7 +93,8 @@ inline void narrow(T& into, R from) {
 }
 
 // Closes the program
-void die();
+[[noreturn]] void die(); // implemented in system_win32.cpp
+[[noreturn]] void die(char const* msg, int code = 0);
 
 // Use these facilities for general output. They may redirect into a logfile later on.
 extern std::ostream& jout;

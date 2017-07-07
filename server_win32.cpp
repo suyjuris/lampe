@@ -1,6 +1,4 @@
 
-#include "stack_walker.hpp"
-
 #include "server.hpp"
 #include "messages.hpp"
 #include "debug.hpp"

@@ -84,7 +84,7 @@ void* allocate_pugi(size_t size) {
 void deallocate_pugi(void* ptr) {
 	// If the memory is inside the buffer, ignore the deallocation. The buffer is
 	// cleared anyways.
-	if (not memory_for_messages.inside(ptr)) {
+	if (not memory_for_messages.inside((char*)ptr)) {
 		free(ptr);
 	}
 }
