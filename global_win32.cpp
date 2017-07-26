@@ -57,6 +57,7 @@ void _assert(c_str expr_str, c_str file, int line) {
     
     MyStackWalker sw;
     sw.ShowCallstack();
+	throw(0);
     die();
 }
 

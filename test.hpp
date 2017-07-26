@@ -29,7 +29,7 @@ struct Mothership_test : Mothership {
 	u32 olddist = 0;
 	Graph_position oldsp;
 	Pos oldp;
-	u8 target = 0;
+	Pos target = { 0, 0 };
 };
 
 } /* end of namespace jup */

@@ -2,6 +2,7 @@
 #include "debug.hpp"
 #include "test.hpp"
 #include "messages.hpp"
+#include <set>
 
 namespace jup {
 
@@ -80,27 +81,22 @@ void Mothership_test::pre_request_action() {
 	step_buffer.reset();
 }
 
+u32 dt, dls, dlm, dc, dhm, dhs, dm;
+
 void Mothership_test::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
 	perc_offsets[agent] = step_buffer.size();
 	step_buffer.append(&perc, perc_size);
+	if (agent == 0 && perc.simulation_step == 0) {
+		jout << "NODES: " << graph->nodes().size() << endl;
+		jout << "EDGES: " << graph->edges().size() << endl;
+	}
 }
 
 void Mothership_test::on_request_action() {
 }
 
-struct Dist_stat {
-	double diff;
-	double rlen;
-	double bdiff;
-	s32 dlat;
-	s32 dlon;
-	double eps;
-};
-
-Buffer stat_buffer;
-
 void Mothership_test::post_request_action(u8 agent, Buffer* into) {
-	auto dist2 = [this](Pos const& pos1, Pos const& pos2) -> double {
+	auto haversine = [this](Pos const& pos1, Pos const& pos2) -> double {
 		auto posa = graph->get_pos_back(pos1), posb = graph->get_pos_back(pos2);
 		auto deg2rad = [](double deg) -> double {
 			return (deg * M_PI / 180);
@@ -119,50 +115,47 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 		return;
 	}
 	Pos pos = perc().self.pos;
-	Graph_position spos = graph->pos_node(pos);
+	Graph_position spos = graph->pos(pos);
 	if (perc().simulation_step > 0) {
-		u32 newdist = graph->dijkstra(spos, graph->pos_edge(perc().shops[target].pos));
+		u32 newdist = graph->dijkstra(spos, graph->pos(target));
 		u32 dist = graph->dijkstra(oldsp, spos);
+		assert(dist > 1000);
+		if (dist < 990000) goto ls;
+		else if (dist < 1010000) { ++dm; --dt; }
+		else if (dist < 1400000) {
+			ls:
+			++dls;
+			printf("<<<<<\n<<<<<\n<<<<<\n<<<<<\n<<<<<\n");
+			jdbg < oldp < oldsp.pos(*graph) < target < graph->pos(target).pos(*graph), 0;
+			auto a = graph->get_pos_back(oldsp.pos(*graph)),
+				b = graph->get_pos_back(spos.pos(*graph));
+			jout << a.first << ", " << a.second << ", " << b.first << ", " << b.second << endl;
+		}
+		else if (dist < 1490000) ++dlm;
+		else if (dist < 1510000) ++dc;
+		else if (dist < 1600000) ++dhm;
+		else {
+			++dhs;
+			printf(">>>>>\n>>>>>\n>>>>>\n>>>>>\n>>>>>\n");
+			jdbg < oldp < oldsp.pos(*graph) < target < graph->pos(target).pos(*graph), 0;
+			auto a = graph->get_pos_back(oldsp.pos(*graph)),
+				b = graph->get_pos_back(spos.pos(*graph));
+			jout << a.first << ", " << a.second << ", " << b.first << ", " << b.second << endl;
+		}
+		double q = 100.0 / ++dt;
+		printf("%6d | %6d | %6.3f | %6.3f | %6.3f | %6.3f | %6.3f\n", dt, dm, dls * q, dlm * q, dc * q, dhm * q, dhs * q);
+
 		assert(newdist > 10000);
-		jout << (olddist - newdist) / 1000.0 << "|" << dist / 1000.0 
-			<< "|" << dist2(oldp, pos) / 1000.0 << endl;
-		stat_buffer.get<Flat_array<Dist_stat, u32, u32>>().push_back(Dist_stat { 
-			(olddist - newdist) / 1000.0, dist / 1000.0, dist2(oldp, pos) / 1000.0,
-			pos.lat - oldp.lat, pos.lon - oldp.lon, (dist2(pos, graph->nodes()[spos.node].pos)
-			+ dist2(oldp, graph->nodes()[oldsp.node].pos)) / 1000.0 }, &stat_buffer);
-	} else {
-		stat_buffer.emplace_back<Flat_array<Dist_stat, u32, u32>>().init(&stat_buffer);
-	} do {
-		target = rand() % perc().shops.size();
-		olddist = graph->dijkstra(spos, graph->pos_edge(perc().shops[target].pos));
-	} while (olddist < 2000000);
+		jout << dist / 1000.0 << " | " << (olddist - newdist) / 1000.0
+			<< " | " << haversine(oldp, pos) / 1000.0 << endl;
+	}
+	do {
+		target = perc().shops[rand() % perc().shops.size()].pos;
+		olddist = graph->dijkstra(spos, graph->pos(target));
+	} while (olddist < 3500000);
 	oldp = pos;
 	oldsp = spos;
-	if (spos.type == Graph_position::on_edge) {
-		auto edge = graph->edges()[spos.edge];
-		jdbg < "on edge: " < graph->nodes()[edge.nodea].pos < graph->nodes()[edge.nodeb].pos, 0;
-	} else if (spos.type == Graph_position::on_node) {
-		jdbg < "on node: " < graph->nodes()[spos.node].pos;
-	} else assert(false);
-	if (perc().simulation_step == 100) {
-		for (Dist_stat s : stat_buffer.get<Flat_array<Dist_stat, u32, u32>>()) {
-			//auto e = graph->pos_edge(s.pos);
-			/*jdbg < pos;
-			if (e.type == Graph_position::on_node) jdbg < "NODE " < graph->nodes()[e.node].pos, 0;
-			else if (e.type == Graph_position::on_edge) {
-				auto ed = graph->edges()[e.edge];
-				jdbg < "EDGE " < graph->nodes()[ed.nodea].pos < "- " < graph->nodes()[ed.nodeb].pos, 0;
-			}
-			else assert(false);*/
-			printf("%6.2f   %6.2f   %6.2f   %5d   %5d   %6.2f\n",
-				s.diff, s.rlen, s.bdiff, s.dlat, s.dlon, s.eps);
-		}
-	}
-	/*for (auto node : route_buffer.get<Graph::Route_t>()) {
-		jdbg < graph->nodes()[node].pos, 0;
-	}*/
-	into->emplace_back<Action_Goto2>(perc().shops[target].pos);
-	//into->emplace_back<Action_Skip>();
+	into->emplace_back<Action_Goto2>(target);
 }
 
 

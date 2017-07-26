@@ -254,19 +254,28 @@ bool Server::load_maps() {
         general_buffer.append("nodes");
         general_buffer.append0();
 
-        int edges_offset  = general_buffer.size();
-        general_buffer.append(options.massim_loc);
-        general_buffer.append("\\server\\graphs\\");
-        general_buffer.append(find_data.cFileName);
-        general_buffer.append("\\");
-        general_buffer.append("edges");
-        general_buffer.append0();
+		int edges_offset = general_buffer.size();
+		general_buffer.append(options.massim_loc);
+		general_buffer.append("\\server\\graphs\\");
+		general_buffer.append(find_data.cFileName);
+		general_buffer.append("\\");
+		general_buffer.append("edges");
+		general_buffer.append0();
+
+		int geometry_offset = general_buffer.size();
+		general_buffer.append(options.massim_loc);
+		general_buffer.append("\\server\\graphs\\");
+		general_buffer.append(find_data.cFileName);
+		general_buffer.append("\\");
+		general_buffer.append("geometry");
+		general_buffer.append0();
         
         graphs.emplace_back();
         graphs.back().init(
             find_data.cFileName,
             general_buffer.data() + nodes_offset,
-            general_buffer.data() + edges_offset
+			general_buffer.data() + edges_offset,
+			general_buffer.data() + geometry_offset
         );
         general_buffer.resize(nodes_offset);
 

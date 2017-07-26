@@ -50,45 +50,71 @@ struct Node {
 };
 
 struct Edge {
-	u32 nodea, nodeb, linka, linkb, dist;
+	u32 nodea, nodeb, linka, linkb, dist, flags, geo, name;
+};
+
+struct u24 {
+	u16 lb;
+	u8 hb;
+	
+	u24() {}
+	u24(u24 const& copy) : lb{ copy.lb }, hb{ copy.hb } {}
+	u24(u32 const& val) : lb{ (u16)(val & 0xffff) }, hb{ (u8)((val & 0xff0000) >> 16) } { assert(val < 0x1000000); }
+	u24 operator=(u32 val) { assert(val < 0x1000000); lb = (u16)(val & 0xffff); hb = (u8)((val & 0xff0000) >> 16); return *this; }
+	operator u32() const { return ((u32)hb << 16) | lb; }
 };
 
 struct Graph_position {
-	enum Graph_position_type {
-		invalid = 0, on_node, on_edge
-	};
-	Graph_position_type type;
-	union {
-		u32 node;
-		u32 edge;
-	};
-	u16 eps;
+	/**
+	* id points to a node iff edge_pos == 0
+	*/
+	u24 id;
 	u8 edge_pos;
 
-	Graph_position(Graph_position_type type = invalid, u32 val = node_invalid, u16 e = 0, u8 r = 0)
-		: type{ type }, node{ val }, eps{ e }, edge_pos{ r } {}
+	Graph_position() {}
+	Graph_position(u24 id, u8 edge_pos) : id{ id }, edge_pos{ edge_pos } {}
+	Graph_position(u24 id, float edge_pos) : id{ id } { set_edge_pos(edge_pos); }
+
+	Pos pos(Graph const& graph) const;
+	float get_edge_pos() const { assert(edge_pos); return (edge_pos - 0.5f) / 255.f; }
+	void set_edge_pos(float val) {
+		assert(val >= 0 && val <= 1);
+		edge_pos = (u8)floor(val * 255.f);
+		if (edge_pos < 255) ++edge_pos;
+	}
 };
 
 struct Graph {
     using Nodes_t = Flat_array<Node, u32, u32>;
     using Edges_t = Flat_array<Edge, u32, u32>;
+	using Geometry_t = Flat_array<Pos, u8, u8>;
+	static constexpr int const geo_size = (sizeof(Geometry_t::Offset_t) + sizeof(Geometry_t::Size_t));
+	static_assert(sizeof(Geometry_t::Type) == 2 * geo_size, "Geometry offset mismatch");
 	using Route_t = Flat_array<u32, u16, u16>;
+
 
     /**
      * Reads the GraphHopper graph from node_filename and edge_filename into this graph. May be
      * called multiple times to re-initialize the graph.
      */ 
-    void init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_filename);
+    void init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_filename, Buffer_view geometry_filename);
 
     /**
      * Converts a lat, lon pair into a Pos
      */
     Pos get_pos(double lat, double lon) const;
 
-	Graph_position pos_node(Pos pos) const;
-	Graph_position pos_edge(Pos pos) const;
-	u32 dijkstra(u32 s, u32 t, Buffer* into = nullptr) const;
+	/**
+	 * Returns the nearest node or edge
+	 */
+	Graph_position pos(Pos pos) const;
+
+	/**
+	 * Returns the distance of the shortest route between two positions
+	 * Optionally writes that route into a buffer
+	 */
 	u32 dijkstra(Graph_position s, Graph_position t, Buffer* into = nullptr) const;
+	u32 dijkstra(Pos s, Pos t, Buffer* into = nullptr) const { return dijkstra(pos(s), pos(t), into); };
     
     /**
      * Returns the actual coordinates from a position
@@ -97,7 +123,8 @@ struct Graph {
 
     Buffer_view const name() const { return {m_data.data() + name_offset, name_size}; }
     auto const& nodes() const { return m_data.get_c<Nodes_t>(node_offset); }
-    auto const& edges() const { return m_data.get_c<Edges_t>(edge_offset); }
+	auto const& edges() const { return m_data.get_c<Edges_t>(edge_offset); }
+	auto const& geometry(u32 ofs) const { return m_data.get_c<Geometry_t>(geometry_offset + geo_size * ofs); }
 
     double map_min_lat = 0.0;
     double map_max_lat = 0.0;
@@ -110,7 +137,8 @@ struct Graph {
 
     int node_offset = -1;
     int edge_offset = -1;
-    int name_offset = -1;
+	int geometry_offset = -1;
+	int name_offset = -1;
 
     int name_size = 0;
 
