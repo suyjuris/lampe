@@ -82,14 +82,8 @@ protected:
 
 void _assert_fail(c_str expr_str, c_str file, int line) {
     jerr << "\nError: Assertion failed. File: " << file << ", Line " << line
-<<<<<<< HEAD
          << "\n\nExpression: " << expr_str << "\n\nStack trace:\n";
     
-    MyStackWalker sw;
-    sw.ShowCallstack();
-	throw(0);
-=======
-         << "\n\nExpression: " << expr_str << "\n";
     die();
 }
 
@@ -107,7 +101,6 @@ void _assert_win_fail(c_str expr_str, c_str file, int line) {
 
 void die(c_str msg, int err) {
     err_msg(msg, err);
->>>>>>> fdf33401eeacbc0dcc0da93300dedb695c504c4c
     die();
 }
 
