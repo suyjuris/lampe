@@ -15,21 +15,24 @@ class Buffer;
  * of data().
  */
 struct Buffer_view {
-	Buffer_view(void const* data = nullptr, int size = 0):
-		m_data{data}, m_size{size} {assert(size >= 0);}
-    Buffer_view(std::nullptr_t): Buffer_view{} {}
+	constexpr Buffer_view(void const* data = nullptr, int size = 0):
+		m_data{data}, m_size{size}
+    {
+        assert(data == nullptr ? size == 0 : size >= 0);
+    }
+    constexpr Buffer_view(std::nullptr_t): Buffer_view{} {}
 	
 	Buffer_view(Buffer const& buf);
 	
 	template<typename T>
-	Buffer_view(std::vector<T> const& vec):
+	constexpr Buffer_view(std::vector<T> const& vec):
 		Buffer_view{vec.data(), (int)(vec.size() * sizeof(T))} {}
 	
 	template<typename T>
-	Buffer_view(std::basic_string<T> const& str):
+	constexpr Buffer_view(std::basic_string<T> const& str):
 		Buffer_view{str.data(), (int)(str.size() * sizeof(T))} {}
 	
-	Buffer_view(char const* str):
+	constexpr Buffer_view(char const* str):
 		Buffer_view{str, (int)std::strlen(str)} {}
 
 
@@ -38,15 +41,18 @@ struct Buffer_view {
 	 * obvious overloading problems.
 	 */
 	template<typename T>
-	static Buffer_view from_obj(T const& obj) {
+	constexpr static Buffer_view from_obj(T const& obj) {
 		return Buffer_view {&obj, sizeof(obj)};
 	}
 
-	int size() const { return m_size; }
+	constexpr int size() const { return m_size; }
 	
-	char const* begin() const { return (char const*)m_data; }
-	char const* end()   const { return (char const*)m_data + m_size; }
-	char const* data()  const { return begin(); }
+	constexpr char const* begin() const { return (char const*)m_data; }
+	constexpr char const* end()   const { return (char const*)m_data + m_size; }
+	constexpr char const* data()  const { return begin(); }
+
+    char front() const { return (*this)[0]; }
+    char back()  const { return (*this)[size() - 1]; }
 
 	/**
 	 * Provide access to the bytes, with bounds checking.
@@ -65,16 +71,28 @@ struct Buffer_view {
 		return data();
 	}
 
+    /**
+     * Return whether the pointer is inside the buffer
+     */
+    template <typename T>
+    bool inside(T const* ptr) const {
+        // duplicates Buffer::inside
+        return (void const*)begin() <= (void const*)ptr
+            and (void const*)(ptr + 1) <= (void const*)end();
+    }
+    
 	/**
 	 * Generate a simple hash of the contents of this Buffer_view. An empty
 	 * buffer must have a hash of 0.
 	 */
 	u32 get_hash() const {
-		u32 result = 0;
+        // FNV-1a algorithm
+		u32 result = 2166136261;
 		for (char c: *this) {
-			result = (result * 33) ^ c;
+			result = (result ^ c) * 16777619;
 		}
-		return result;
+        // Always return 0 when the buffer is empty
+		return result ^ 2166136261;
 	}
 
 	/**
@@ -82,17 +100,25 @@ struct Buffer_view {
 	 */
 	bool operator== (Buffer_view const& buf) const {
 		if (size() != buf.size()) return false;
-		for (int i = 0; i < size(); ++i) {
-			if ((*this)[i] != buf[i]) return false;
-		}
-		return true;
+        return std::memcmp(data(), buf.data(), size()) == 0;
 	}
 	bool operator!= (Buffer_view const& buf) const { return !(*this == buf); }
 
     /**
+     * Compare lexicographically by bytes
+     */
+    int compare(Buffer_view const& buf) const {
+        auto cmp1 = std::memcmp(data(), buf.data(), std::min(size(), buf.size()));
+        auto cmp2 = (size() > buf.size()) - (size() < buf.size());
+        return cmp1 ? cmp1 : cmp2;
+	}
+	bool operator< (Buffer_view const& buf) const { return compare(buf) < 0; }
+    
+
+    /**
      * Return whether the buffer is valid and not empty.
      */
-    operator bool() const {
+    constexpr operator bool() const {
         return data() and size();
     }
     
@@ -100,29 +126,30 @@ struct Buffer_view {
 	int m_size;
 };
 
-/* TODO Finish or remove
-class Buffer_alloc {
-public:
-    void* alloc_new(u64 min_size, u64* out_size);
-    void* alloc_extend(void* base, u64 cur_size, u64 min_size, u64* out_size);
-    void free(void* base)
-};
-*/
+using jup_str = Buffer_view;
+
+inline std::ostream& operator<< (std::ostream& s, Buffer_view buf) {
+    s.write(buf.data(), buf.size());
+    return s;
+}
 
 struct Buffer_guard {
-    Buffer const* buf;
+    Buffer* buf;
     int size_target;
+    bool trap_alloc;
 
-    Buffer_guard(): buf{nullptr}, size_target{0} {}
-    Buffer_guard(Buffer const& buf, int size_incr);
+    Buffer_guard(): buf{nullptr}, size_target{0}, trap_alloc{false} {}
+    Buffer_guard(Buffer& buf, int size_incr);
 
     Buffer_guard(Buffer_guard&& g) {
         std::swap(buf, g.buf);
         std::swap(size_target, g.size_target);
+        std::swap(trap_alloc, g.trap_alloc);
     }
     Buffer_guard& operator= (Buffer_guard&& g) {
         std::swap(buf, g.buf);
         std::swap(size_target, g.size_target);
+        std::swap(trap_alloc, g.trap_alloc);
         return *this;
     }
     
@@ -151,6 +178,7 @@ class Buffer {
 	static_assert(sizeof(int) == 4, "Assuming 32bit ints for the bitmasks.");
 #endif
 public:
+
 	/**
 	 * These do what you would expect them to.
 	 */
@@ -167,8 +195,10 @@ public:
 		buf.m_size = 0;
 		buf.m_capacity = 0;
 	}
-	~Buffer() { free(); }
-	Buffer& operator= (Buffer const& buf) {
+
+    ~Buffer() { free(); }
+
+    Buffer& operator= (Buffer const& buf) {
 		reset();
 		append(buf);
 		return *this;
@@ -222,8 +252,15 @@ public:
 	void append(Buffer_view buffer) {
 		append(buffer.data(), buffer.size());
 	}
-	void append0() {
-		append("", 1);
+	void append0(int count = 1) {
+		if (!count) return;
+		assert(count > 0);
+		if (capacity() < m_size + count)
+			reserve(m_size + count);
+		
+		assert(capacity() >= count);
+		std::memset(m_data + m_size, 0, count);
+		m_size += count;
 	}
 
 	void pop_front(int i) {
@@ -263,6 +300,27 @@ public:
 		m_capacity = 0;
 	}
 
+    /**
+     * Release ownership of the memory, and return a Buffer_view of the valid region.
+     */
+    Buffer_view release() {
+        Buffer_view result {begin(), size()};
+        m_data = nullptr;
+        m_size = 0;
+        m_capacity = 0;
+        return result;
+    }
+
+    /**
+     * Take ownership of the memory, free the current memory, if any.
+     */
+    void take(void* memory, int size) {
+        free();
+        m_data = (char*)memory;
+        m_size = 0;
+        m_capacity = size;
+    }
+
 	int size() const { return m_size; }
 	int capacity() const {
 		// If in debug mode, the most-significant bit of m_capacity is serving
@@ -281,14 +339,14 @@ public:
 	 */
 	bool trap_alloc() const {
 #ifndef NDEBUG
-		return ((u32)m_capacity >> 31) and not program_closing;
+		return ((u32)m_capacity >> 31);
 #else
 		return false;
 #endif
 	}
 
 	/**
-	 * Set the trap_alloc() flag.
+	 * Maybe set the trap_alloc() flag and return its value.
 	 */
 	bool trap_alloc(bool value) {
 #ifndef NDEBUG
@@ -349,6 +407,11 @@ public:
 	char const* end()   const {return m_data + m_size;}
 	char const* data()  const {return begin();}
 
+    char& front() { return (*this)[0]; }
+    char& back()  { return (*this)[size() - 1]; }
+    char  front() const { return (*this)[0]; }
+    char  back()  const { return (*this)[size() - 1]; }
+
     /**
 	 * Provide access to the buffer, with bounds checking.
 	 */
@@ -361,38 +424,52 @@ public:
 		return data()[pos];
 	}
 
-	void write_to_file(Buffer_view filename) {
+	void write_to_file(Buffer_view filename, bool binary = true) {
 		std::ofstream o;
-		o.open(filename.c_str(), std::ios::out | std::ios::binary);
+        auto flags = (binary ? (std::ios::out | std::ios::binary) : std::ios::out);
+		o.open(filename.c_str(), flags);
 		o.write(data(), size());
 		o.close();
 	}
 
-	void read_from_file(Buffer_view filename) {
+	void read_from_file(Buffer_view filename, bool binary = true, int maxsize = -1) {
 		std::ifstream i;
-		i.open(filename.c_str(), std::ios::binary | std::ios::ate);
+        auto flags = (binary ? (std::ios::ate | std::ios::binary) : std::ios::ate);
+		i.open(filename.c_str(), flags);
         std::streamsize fsize = i.tellg();
+        assert(fsize <= (std::streamsize)maxsize);
         i.seekg(0, std::ios::beg);
         reserve_space(fsize);
-        assert(i.read(end(), fsize));
-        assert(i.gcount() == fsize);
-        addsize(fsize);
+        i.read(end(), fsize);
+        assert(binary ? i.gcount() == fsize : i.gcount() <= fsize);
+        addsize(i.gcount());
 		i.close();
 	}
 
-    bool inside(void const* ptr) const {
-        return (void const*)begin() <= ptr and ptr < (void const*)end();
+    /**
+     * Return whether the pointer is inside the buffer
+     */
+    template <typename T>
+    bool inside(T const* ptr) const {
+        // duplicates Buffer_view::inside
+        return (void const*)begin() <= (void const*)ptr
+            and (void const*)(ptr + 1) <= (void const*)end();
     }
-
-private:
+    
 	char* m_data = nullptr;
 	int m_size = 0, m_capacity = 0;
 };
 
-inline Buffer_guard::Buffer_guard(Buffer const& buf, int size_incr):
-    buf{&buf}, size_target{buf.size() + size_incr} {}
+inline Buffer_guard::Buffer_guard(Buffer& buf, int size_incr):
+    buf{&buf}, size_target{buf.size() + size_incr}, trap_alloc{buf.trap_alloc()}
+{
+    buf.trap_alloc(true);
+}
 inline Buffer_guard::~Buffer_guard() {
-    if (buf) { assert(buf->size() == size_target); }
+    if (buf) {
+        assert(buf->size() == size_target);
+        buf->trap_alloc(trap_alloc);
+    }
 }
 
 inline Buffer_view::Buffer_view(Buffer const& buf):

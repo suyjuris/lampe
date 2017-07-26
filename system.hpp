@@ -36,11 +36,9 @@ void cancel_blocking_io(std::thread& thread);
 void write_last_errmsg();
 
 /**
- * Test whether expr is true. If it is not, the last Windows error is queried
- * (via GetLastError) and printed.
+ * Return the width of the terminal currently used. This may not always work correctly.
  */
-#define assert_win(expr) _assert_win_internal((expr), __FILE__, __LINE__)
-void _assert_win_internal(bool expr, char const* file, int line);
+int get_terminal_width();
 
 class Process {
 public:

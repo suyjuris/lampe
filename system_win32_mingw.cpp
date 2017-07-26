@@ -42,30 +42,14 @@ void cancel_blocking_io(std::thread& thread) {
 }
 
 // see header
-void write_last_errmsg() {
-    auto err = GetLastError();
-    char* msg = nullptr;
-    FormatMessage(
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-        nullptr,
-        err,
-        MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
-        (LPTSTR)&msg,
-        0,
-        nullptr
-    );
-    int l = std::strlen(msg);
-    while (l and (msg[l-1] == '\n' or msg[l-1] == '\x0d')) msg[--l] = 0;
-    jerr << "Error: " << msg << " (" << err << ")\n";
-}
-
-void _assert_win_internal(bool expr, char const* file, int line) {
-    if (not expr) {
-        jerr << "\nError while calling the Windows API\nFile: " << file << ", Line "
-             << line << "\n\n";
-        write_last_errmsg();
-        std::abort();
-    }
+int get_terminal_width() {
+    CONSOLE_SCREEN_BUFFER_INFO info;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info);
+    int width = info.srWindow.Right - info.srWindow.Left + 1;
+    
+    // This does not always work, make 80 minimum as a workaround
+    if (width == 1) width = 80;
+    return width;
 }
 
 void Process::init(const char* cmdline, const char* dir) {

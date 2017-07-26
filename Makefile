@@ -49,9 +49,11 @@ $(TARGET): $(TMPDIR)/$(TARGET)
 	$(CV2PDB) $<$(EXEEXT) $@$(EXEEXT)
 
 init:
+	mkdir -p /usr/local/bin
 	wget https://ci.appveyor.com/api/projects/rainers/visuald/artifacts/cv2pdb.exe?job=Environment%\
 	3A%20os%3DVisual%20Studio%202013%2C%20VS%3D12%2C%20APPVEYOR_BUILD_WORKER_IMAGE%3DVisual%20Studi\
 	o%202015 -O /usr/local/bin/cv2pdb.exe
+	cp -f eer.py /usr/local/bin/eer
 
 clean:
 	-rm -f *.o *.d *~
