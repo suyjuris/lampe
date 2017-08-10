@@ -51,7 +51,7 @@ struct Server_options {
 };
 
 struct Mothership {
-	virtual void init(Graph const* graph) = 0;
+	virtual void init(Graph* graph) = 0;
     virtual void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) = 0;
     virtual void pre_request_action() = 0;
     virtual void pre_request_action(u8 agent, Percept const& perc, int perc_size) = 0;
