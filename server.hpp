@@ -18,9 +18,11 @@ constexpr auto ADD_DUMMY = "-u";
 constexpr auto DUMP_XML = "-d";
 constexpr auto LOAD_CFGFILE = "--load";
 constexpr auto LAMPE_SHIP = "-s";
+constexpr auto MASSIM_QUIET = "-q";
 constexpr auto STATS_FILE = "--stats";
 
 constexpr auto LAMPE_SHIP_TEST = "test";
+constexpr auto LAMPE_SHIP_TEST2 = "test2";
 constexpr auto LAMPE_SHIP_STATS = "stats";
 constexpr auto LAMPE_SHIP_PLAY = "play";
     
@@ -28,7 +30,7 @@ constexpr auto LAMPE_SHIP_PLAY = "play";
 
 struct Server_options {
     enum Ship: u8 {
-        SHIP_TEST, SHIP_STATS, SHIP_PLAY
+        SHIP_TEST, SHIP_TEST2, SHIP_STATS, SHIP_PLAY
     };
     struct Agent_option {
         Buffer_view name, password;
@@ -44,8 +46,8 @@ struct Server_options {
     Buffer_view dump_xml;
     u8 ship = SHIP_TEST;
 	Buffer_view statistics_file;
-
     Buffer _string_storage;
+    bool massim_quiet = false;
 
     bool check_valid();
 };

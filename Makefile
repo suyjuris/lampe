@@ -7,7 +7,7 @@ TARGET = jup
 LIBS = -lWs2_32 -lversion -static-libstdc++ -static-libgcc -static
 CXX = g++
 CXXFLAGS = -g -Wall -Werror -pedantic -fmax-errors=2
-CPPFLAGS = -std=c++1y
+CPPFLAGS = -std=c++1z
 LDFLAGS  = -Wall
 EXEEXT = .exe
 CV2PDB = cv2pdb

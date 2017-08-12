@@ -1,7 +1,6 @@
 
 #include "server.hpp"
 #include "messages.hpp"
-#include "debug.hpp"
 
 namespace jup {
 
@@ -197,7 +196,7 @@ Server::Server(Server_options const& op): options{op} {
         general_buffer.append("\\server");
         general_buffer.append("", 1);
     
-        proc.write_to_stdout = true;
+        proc.write_to_stdout = not options.massim_quiet;
         // TODO: Better error message for missing java
         proc.init(general_buffer.data() + cmdline, general_buffer.data() + dir);
 
@@ -233,10 +232,11 @@ bool Server::load_maps() {
 
     handle = FindFirstFile(general_buffer.data() + init_off, &find_data);
     if (handle == INVALID_HANDLE_VALUE) {
-        jerr << "Could not load the maps from massim. This could happend if massim was not run yet."
+        jerr << "Warning: Could not load the maps from massim. This could happen if massim was not "
+             << "run yet. lampe will probably crash, but restarting should solve the problem. "
              << "You specified the following location for the massim directory:\n";
         jerr << "  " << options.massim_loc.c_str() << '\n';
-        return false;
+        return true;
     }
 
     do {
@@ -332,7 +332,6 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
 }
 
 void Server::run_simulation() {
-	jout << "\nrun_simulation beginning\n\n";
     if (options.agents.size()) {
         // Make sure to have all the dumb agents at the end
         for (auto i: options.agents) {
@@ -358,7 +357,7 @@ void Server::run_simulation() {
     // Press ENTER to start the simulation
     if (options.use_internal_server) {
         proc.write_to_buffer = false;
-        proc.write_to_stdout = true;
+        proc.write_to_stdout = not options.massim_quiet;
         proc.send("\n");
     } else {
         jout << "Connected.\n";

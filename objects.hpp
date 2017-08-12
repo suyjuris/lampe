@@ -5,30 +5,32 @@
 namespace jup {	
 
 struct Item_stack {
-	u8 item;
+    union {u8 item; u8 id;};
 	u8 amount;
+
+    bool operator== (Item_stack o) const {
+        return id == o.id and amount == o.amount;
+    }
 };
 
 struct Pos {
 	u16 lat;
 	u16 lon;
-    
-	float dist (Pos p) const;
-	float dist2(Pos p) const;
-	float distr(Pos p) const;
+
+    float dist2(Pos p) const;
 };
 
 u16 operator-(Pos const p1, Pos const p2);
 
 struct Item {
-	u8 name;
+	union {u8 name; u8 id;};
 	u16 volume;
 	Flat_array<Item_stack> consumed;
 	Flat_array<u8> tools;
 };
 
 struct Role {
-	u8 name;
+	union {u8 name; u8 id;};
 	u8 speed;
 	u16 battery;
 	u16 load;
@@ -243,13 +245,13 @@ struct Simulation {
 };
 
 struct Entity {
-	u8 name;
+	union {u8 name; u8 id;};
 	u8 team;
 	Pos pos;
 	u8 role;
 };
 
-struct Self : Entity {
+struct Self: Entity {
 	u16 charge;
 	u16 load;
 	u8 action_type;
@@ -259,7 +261,7 @@ struct Self : Entity {
 };
 
 struct Facility {
-	u8 name;
+	union {u8 name; u8 id;};
 	Pos pos;
 };
 
@@ -301,16 +303,16 @@ struct Job {
 	Flat_array<Item_stack> required;
 };
 
-struct Auction : Job {
+struct Auction: Job {
 	u16 auction_time;
 	u32 fine;
 	u32 max_bid;
 };
 
-struct Mission : Auction {
+struct Mission: Auction {
 };
 
-struct Posted : Job {
+struct Posted: Job {
 };
 
 struct Resource_node : Facility {

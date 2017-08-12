@@ -5,6 +5,8 @@
 #include "objects.hpp"
 //#include "agent.hpp"
 #include "messages.hpp"
+#include "utilities.hpp"
+#include "simulation.hpp"
 
 namespace jup {
 
@@ -62,7 +64,6 @@ struct Debug_ostream {
         out << buf.data();
         return *this;
     }
-
 };
 
 struct Debug_tabulator {
@@ -151,6 +152,17 @@ inline Debug_ostream& operator< (Debug_ostream& out, Id_string16 i) {
 	return out;
 }
 
+
+template <typename T>
+struct Identity { T const& val; };
+
+template <typename T>
+inline Debug_ostream& operator< (Debug_ostream& out, Identity<T> const& i) {
+    return out < i.val;
+}
+
+
+
 template <typename T, T mask>
 inline T apply_mask(T val) { return val & mask; }
 
@@ -193,23 +205,175 @@ inline Debug_ostream& operator< (Debug_ostream& out, u8 n) {
     return out < (int)n;
 }
 
+inline void consume_prefix_stack(Debug_ostream& out, Array<jup_str>& stack) {
+    for (jup_str i: stack) {
+        out.out << i;
+    }
+    stack.reset();
+}
+
+template <typename T>
+void diff_var(Debug_ostream& out, Array<jup_str>& stack, jup_str prefix, char const* suffix, T const& a, T const& b) {
+    stack.push_back(prefix);
+    print_diff(out, stack, a, b);
+    if (not stack) { out < suffix; } else { stack.pop_back(); }
+}
+
+template <typename T, typename std::enable_if<std::is_arithmetic<T>::value, int>::type = 0>
+void print_diff(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b)
+    { print_diff_scalar(out, stack, a, b); }
+template <typename T, std::size_t N>
+void print_diff(Debug_ostream& out, Array<jup_str>& stack, T const (&a)[N], T const (&b)[N])
+    { print_diff_array(out, stack, a, b); }
+template <typename T, typename T2, typename T3>
+void print_diff(Debug_ostream& out, Array<jup_str>& stack, Flat_array<T, T2, T3> const& a,
+    Flat_array<T, T2, T3> const& b) { print_diff_range(out, stack, a, b); }
+
+template <typename T>
+void print_diff_scalar(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b) {
+    if (a != b) {
+        consume_prefix_stack(out, stack);
+        if (a < b) out.out << '+';
+        out.out << (b - a);
+    }
+}
+
+template <typename T>
+void print_diff_array(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b) {
+    assert(std::size(a) == std::size(b));
+
+    stack.push_back("{");
+    
+    for (int i = 0; i < (int)std::size(a); ++i) {
+        print_diff(out, stack, a[i], b[i]);
+        if (not stack) out < ", ";
+    }
+    
+    if (not stack) { out < "\b\b}"; } else { stack.pop_back(); }
+}
+
+template<class T, class = void>
+struct Type_has_id : std::false_type {};
+
+template<class T>
+struct Type_has_id<T, std::void_t<decltype(std::declval<T>().id)>> : std::true_type {};
+
+template <typename T, typename std::enable_if
+    <std::is_same<decltype(std::declval<T>().id), u8>::value, int>::type = 0>
+jup_str diff_obj_prefix(T const& obj, char const* prefix) {
+    return jup_printf("%s {id = \"%s\", ", prefix, get_string_from_id(obj.id));
+}
+template <typename T, typename std::enable_if
+    <std::is_same<decltype(std::declval<T>().id), u16>::value, int>::type = 0>
+jup_str diff_obj_prefix(T const& obj, char const* prefix) {
+    return jup_printf("%s {id = \"%s\", ", prefix, get_string_from_id(obj.id));
+}
+template <typename T, typename std::enable_if<not Type_has_id<T>::value, int>::type = 0>
+jup_str diff_obj_prefix(T const& obj, char const* prefix) {
+    return jup_printf("%s {", prefix);
+}
+
+template <typename T>
+auto get_identifier(T const& obj) -> decltype(obj.id) { return obj.id; }
+template <typename T, typename std::enable_if<not Type_has_id<T>::value, int>::type = 0>
+auto get_identifier(T const& obj) { return obj; }
+
+template <typename T>
+void print_diff_range(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b) {
+    stack.push_back("{");
+    
+    int a_i = 0;
+    int b_i = 0;
+
+    while (a_i < std::size(a) and b_i < std::size(b)) {
+        if (get_identifier(a[a_i]) == get_identifier(b[b_i])) {
+            stack.push_back("");
+            print_diff(out, stack, a[a_i], b[b_i]);
+            if (not stack) { out < ", "; } else { stack.pop_back(); }
+            ++a_i; ++b_i;
+        } else {
+            int a_j = a_i + 1;
+            int b_j = b_i + 1;
+
+            for (; a_j < std::size(a); ++a_j) {
+                if (get_identifier(a[a_j]) == get_identifier(b[b_i])) break;
+            }
+            for (; b_j < std::size(b); ++b_j) {
+                if (get_identifier(a[a_i]) == get_identifier(b[b_j])) break;
+            }
+
+            if ((a_j <= b_j or b_j == std::size(b)) and a_j < std::size(a)) {
+                consume_prefix_stack(out, stack);
+                for (; a_i < a_j; ++a_i) {
+                    out < "<" < a[a_i] < "\b, ";
+                }
+            } else if ((b_j < a_j or a_j == std::size(a)) and b_j < std::size(b)) {
+                consume_prefix_stack(out, stack);
+                for (; b_i < b_j; ++b_i) {
+                    out < ">" < b[b_i] < "\b, ";
+                }                
+            } else {
+                consume_prefix_stack(out, stack);
+                out < "<" < a[a_i] < "\b, ";
+                out < ">" < b[b_i] < "\b, ";
+                ++a_i; ++b_i;
+            }
+        }
+    }
+    
+    if (a_i < std::size(a)) {
+        consume_prefix_stack(out, stack);
+        for (; a_i < std::size(a); ++a_i) {
+            out < "<" < a[a_i] < "\b, ";
+        } 
+    }
+    if (b_i < std::size(b)) {
+        consume_prefix_stack(out, stack);
+        for (; b_i < std::size(b); ++b_i) {
+            out < ">" < b[b_i] < "\b, ";
+        } 
+    }
+    
+    if (not stack) { out < "\b\b}"; } else { stack.pop_back(); }
+}
+
 extern Debug_ostream jdbg;
 
+template <typename T>
+void jdbg_diff(T const& a, T const& b) {
+    Array<jup_str> stack;
+    print_diff(jdbg, stack, a, b);
+    jdbg ,0;
+}
+
 // type must have between 1 and 15 elements
-#define display_var1(var) < " " < #var < " = " < obj.var < "\b,"
-#define display_var2(var, fmt) < " " < #var < " = " < fmt(obj.var) < "\b,"
+#define display_var1(var) < #var < " = " < obj.var < "\b, "
+#define display_var2(var, fmt) < #var < " = " < fmt(obj.var) < "\b, "
 #define display_var(var) __select(display_var1, display_var2, var)
 #define display_obj(type, ...)                                          \
-    out < "(" < #type < ") {" __forall(display_var, __VA_ARGS__) < "\b } "
+    out < "(" < #type < ") {" __forall(display_var, __VA_ARGS__) < "\b\b} "
 #define print_for_gdb(type) \
     inline void print(type const& obj) __attribute__ ((used));  \
     inline void print(type const& obj) {                        \
         jup::jdbg < obj, 0;                                     \
     }
-#define op(type, ...) \
+
+#define dodiff_var1(var) diff_var(out, stack, #var ": ", ", ", a.var, b.var);
+#define dodiff_var2(var, fmt) dodiff_var1(var)
+#define dodiff_var(var) __select(dodiff_var1, dodiff_var2, var)
+#define dodiff_obj(type, ...)                                           \
+    inline void print_diff(Debug_ostream& out, Array<jup_str>& stack, type const& a, type const& b) { \
+        stack.push_back(diff_obj_prefix(a, "(" #type ")"));             \
+        __forall(dodiff_var, __VA_ARGS__)                               \
+        if (not stack) { out < "\b\b}"; } else { stack.pop_back(); }    \
+    }
+
+
+#define op(type, ...)                                                   \
     inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) { \
 	    return display_obj(type, __VA_ARGS__);                              \
     }                                                                       \
+    dodiff_obj(type, __VA_ARGS__)                                           \
     print_for_gdb(type)
 
 #define hex(x) (x, make_hex)
@@ -217,6 +381,7 @@ extern Debug_ostream jdbg;
 #define id(x) (x, Id_string)
 #define id16(x) (x, Id_string16)
 #define mask(x, m) (x, (apply_mask<decltype(m), m>))
+#define action_name(x) (x, Action::get_name)
 
 op(Buffer_view, hex(m_data), m_size)
 op(Buffer, hex(m_data), m_size, mask(m_capacity, 0x7fffffff))
@@ -224,9 +389,8 @@ op(Buffer, hex(m_data), m_size, mask(m_capacity, 0x7fffffff))
 op(Item_stack, id(item), amount)
 op(Pos, lat, lon)
 op(Item, id(name), volume, consumed, tools)
-//op(Role, name, speed, battery, load, tools)
-op(Role, id(name), speed, battery, load)
-op(Action, type, get_name(obj.type))
+op(Role, id(name), speed, battery, load, tools)
+op(Action, type, action_name(type))
 op(Simulation, id, map, team, seed_capital, steps, role, items)
 op(Self, id(name), team, pos, role, charge, load, facility, action_type, action_result)
 op(Entity, id(name), team, pos, role)
@@ -243,9 +407,20 @@ op(Auction, id16(id), storage, start, end, required, reward, fine, max_bid)
 op(Mission, id16(id), storage, start, end, required, reward, fine, max_bid)
 op(Posted, id16(id), storage, start, end, required, reward)
 op(Resource_node, id(name), resource, pos)
-op(Percept, deadline, id, simulation_step, team_money, self, entities,
-	charging_stations, dumps, shops, storages, workshops, resource_nodes,
-	auctions, jobs, missions, posteds)
+op(Percept, deadline, id, simulation_step, team_money, self, entities, charging_stations, dumps,
+    shops, storages, workshops, resource_nodes, auctions, jobs, missions, posteds)
+
+op(Task, type, where, item, job_id, crafter_id, state)
+op(Task_result, time, err, err_arg)
+op(World, team, seed_capital, steps, items, roles, graph)
+op(Job_item, id16(job_id), item)
+op(Bookkeeping, delivered)
+op(Task_slot, task, result)
+op(Strategy, m_tasks)
+op(Self_sim, id(name), team, pos, role, charge, load, facility, action_type, action_result,
+    task_index, task_state, task_sleep)
+op(Situation, simulation_step, team_money, selves, entities, charging_stations, dumps, shops,
+    storages, workshops, resource_nodes, auctions, jobs, missions, posteds, book)
 
 /*op(Requirement, type, dependency, item, where, is_tool, state, id)
 op(Job_execution, job, cost, needed)

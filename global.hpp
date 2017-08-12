@@ -33,9 +33,11 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <set>
 #include <sstream>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -90,6 +92,12 @@ template <typename T, typename R>
 inline void narrow(T& into, R from) {
 	into = static_cast<T>(from);
 	assert(static_cast<R>(into) == from and (into > 0) == (from > 0));
+}
+template <typename T, typename R>
+inline T narrow(R from) {
+	T result = static_cast<T>(from);
+	assert(static_cast<R>(result) == from and (result > 0) == (from > 0));
+    return result;
 }
 
 // Closes the program

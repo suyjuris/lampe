@@ -5,20 +5,20 @@
 namespace jup {
 
 /**
-* This is a 'flat' data structure, meaning that it goes into a Buffer together
-* with its contents. It has the following layout:
-*               +--------------------------+
-*               |                          V
-*   ... first last ... next1 element1 ...  0 elementn ...
-*         |             ^ |                ^
-*         +-------------+ +-----------...--+
-* The last-offset describes the difference between this and the address of the last next-offset
-* Iff start is 0, the list is empty
-* Iff the next-offset is 0, there are no further elements
-*
-* Else the object is invalid, and any method other than init() has undefined
-* behaviour. */
-
+ * This is a 'flat' data structure, meaning that it goes into a Buffer together
+ * with its contents. It has the following layout:
+ *               +--------------------------+
+ *               |                          V
+ *   ... first last ... next1 element1 ...  0 elementn ...
+ *         |             ^ |                ^
+ *         +-------------+ +------ ... -----+
+ * The last-offset describes the difference between this and the address of the last next-offset
+ * Iff start is 0, the list is empty
+ * Iff the next-offset is 0, there are no further elements
+ *
+ * Else the object is invalid, and any method other than init() has undefined
+ * behaviour.
+ */
 
 template <typename T, typename _Offset_t = u16>
 struct Flat_list_iterator : public std::iterator<std::forward_iterator_tag, T> {
@@ -40,7 +40,6 @@ struct Flat_list_iterator : public std::iterator<std::forward_iterator_tag, T> {
 		return *this;
 	}
 };
-
 template <typename T, typename _Offset_t = u16, typename _Offset_big_t = _Offset_t>
 struct Flat_list {
 	using Type = T;
@@ -111,55 +110,35 @@ struct Flat_list {
 		return *(T const*)(ptr + sizeof(Offset_t));
 	}
 
-	T& emplace_back(Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this() <= (void*)containing->end());
+    void _advance(Buffer* containing) {
+        assert(containing and containing->inside(this));
 		if (first == 0) {
-			first = containing->end() - (char*)this;
+			narrow(first, containing->end() - (char*)this);
 		} else {
 			Offset_t* l = (Offset_t*)((char*)this + last);
-			l = containing->end() - (char*)&l;
+            assert(*l == 0);
+            narrow(*l, containing->end() - (char*)l);
 		}
-		last = containing->end() - (char*)this;
-		containing->emplace_back<Offset_t>(Offset_t(0));
-		return containing->emplace_back<T>();
-	}
-
+        narrow(last, containing->end() - (char*)this);
+		containing->emplace_back<Offset_t>(Offset_t{0});
+    }
+    
 	/**
-	* Insert an element at the back. This operation may invalidate all pointers to
-	* the Buffer, including the one you use for this object!
-	*/
-	T& push_back(T const& obj, Buffer* containing) {
-		assert(containing);
-		assert((void*)containing->begin() <= (void*)this
-			and (void*)this <= (void*)containing->end());
-		if (first == 0) {
-			first = containing->end() - (char*)this;
-		} else {
-			Offset_t* l = (Offset_t*)((char*)this + last);
-			*l = containing->end() - (char*)l;
-		}
-		last = containing->end() - (char*)this;
-		containing->emplace_back<Offset_t>(Offset_t(0));
-		return containing->emplace_back<T>(obj);
+     * Insert an element at the back. This operation may invalidate all pointers to
+     * the Buffer, including the one you use for this object!
+     */
+    template <typename T2>
+	T2& emplace_back(Buffer* containing) {
+        _advance(containing);
+		return containing->emplace_back<T2>();
 	}
-
-	/**
-	* Insert an element with additional data at the back. This operation may invalidate
-	* all pointers to the Buffer, including the one you use for this object!
-	*/
 	void push_back(Buffer_view obj, Buffer* containing) {
-		assert(containing and containing->inside(this));
-		if (first == 0) {
-			first = containing->end() - (char*)this;
-		} else {
-			Offset_t* l = (Offset_t*)((char*)this + last);
-			*l = containing->end() - (char*)l;
-		}
-		last = containing->end() - (char*)this;
-		containing->emplace_back<Offset_t>(Offset_t(0));
+        _advance(containing);
 		containing->append(obj);
+	}
+    template <typename T2>
+	void push_back(T2 const& obj, Buffer* containing) {
+        push_back(Buffer_view::from_obj(obj), containing);
 	}
 
 	/**
@@ -226,10 +205,10 @@ struct Flat_array {
 	Flat_array(): start{0} {}
 	Flat_array(Buffer* containing) { init(containing); }
     
-    static int total_space(int size) {
+    constexpr static int total_space(int size) {
         return sizeof(Flat_array<T, Offset_t, Size_t>) + extra_space(size);
     }
-    static int extra_space(int size) {
+    constexpr static int extra_space(int size) {
         return sizeof(Size_t) + sizeof(T) * size;
     }
 
@@ -242,6 +221,13 @@ struct Flat_array {
 		narrow(start, containing->end() - (char*)this);
         // This may invalidate us, but that is okay
 		containing->emplace_back<Size_t>();
+	}
+	void init(int num_zeros, Buffer* containing) {
+		assert(containing and containing->inside(this));
+		narrow(start, containing->end() - (char*)this);
+        // This may invalidate us, but that is okay
+		containing->emplace_back<Size_t>((Size_t)num_zeros);
+        containing->append0(num_zeros * sizeof(T));
 	}
 
 	void init(Flat_array<Type, Offset_t, Size_t> const& orig, Buffer* containing) {
@@ -297,7 +283,7 @@ struct Flat_array {
 	/**
 	 * Return the element. Does bounds-checking.
 	 */
-	T& operator[] (Size_t pos) {
+    T& operator[] (Size_t pos) {
 		assert(0 <= pos and pos < size());
 		return *(begin() + pos);
 	}
@@ -306,11 +292,6 @@ struct Flat_array {
 		return *(begin() + pos);
 	}
 
-	T& emplace_back(Buffer* containing) {
-		assert(containing and containing->inside(this));
-		++m_size();
-		return containing->emplace_back<T>();
-	}
 
 	/**
 	 * Insert an element at the back. The end of the list and the end of the
@@ -318,9 +299,14 @@ struct Flat_array {
 	 * the Buffer, including the one you use for this object!
 	 */
 	void push_back(T const& obj, Buffer* containing) {
-		assert(containing and containing->inside(this));
-		++m_size();
+		assert(containing and containing->inside(this) and (void*)end() == (void*)containing->end());
+		assert(++m_size() > 0);
 		containing->emplace_back<T>(obj);
+	}
+	T& emplace_back(Buffer* containing) {
+		assert(containing and containing->inside(this) and (void*)end() == (void*)containing->end());
+		assert(++m_size() > 0);
+		return containing->emplace_back<T>();
 	}
 
 	/**
@@ -355,9 +341,102 @@ struct Flat_array {
 	}
 
     operator bool() const {
-        return start;
+        return start and m_size();
     }
 };
+
+/**
+ * The same as Flat_array, but the offset is constant and the size part of the struct.
+ *   ... size  ...  element1 element2 ...
+ *         |          ^
+ *         +--offset--+
+ */
+template <typename T, typename _Size_t, int offset>
+struct Flat_array_const {
+    static_assert(offset > 0, "offset must be greater than 0");
+	using Type = T;
+	using Size_t = _Size_t;
+
+    Size_t m_size;
+		
+	Flat_array_const(): m_size{0} {}
+	Flat_array_const(Buffer* containing) { init(containing); }
+    
+	/**
+	 * Initializes the Flat_array by having it point to the end of the
+	 * Buffer. The object must be contained in the Buffer!
+	 */
+	void init(Buffer* containing) {
+		assert(containing and containing->inside(this));
+		assert(offset == containing->end() - (char*)this);
+	}
+
+	Size_t size() const { return m_size; }
+
+	T* begin() { return (T*)((char*)this + offset); }
+	T* end()   { return begin() + size(); }
+	T const* begin() const { return (T*)((char*)this + offset); }
+	T const* end()   const { return begin() + size(); }
+
+    T& front() {assert(size()); return *begin();}
+    T& back()  {assert(size()); return end()[-1];}
+    T const& front() const {assert(size()); return *begin();}
+    T const& back()  const {assert(size()); return end()[-1];}
+
+	/**
+	 * Return the element. Does bounds-checking.
+	 */
+	T& operator[] (Size_t pos) {
+		assert(0 <= pos and pos < size());
+		return *(begin() + pos);
+	}
+	T const& operator[] (Size_t pos) const {
+		assert(0 <= pos and pos < size());
+		return *(begin() + pos);
+	}
+
+
+	/**
+	 * Insert an element at the back. The end of the list and the end of the
+	 * Buffer must be the same! This operation may invalidate all pointers to
+	 * the Buffer, including the one you use for this object!
+	 */
+	void push_back(T const& obj, Buffer* containing) {
+		assert(containing and containing->inside(this) and (void*)end() == (void*)containing->end());
+		assert(++m_size > 0); // be mindful of overflow
+		containing->emplace_back<T>(obj);
+	}
+	T& emplace_back(Buffer* containing) {
+		assert(containing and containing->inside(this) and (void*)end() == (void*)containing->end());
+		assert(++m_size > 0); // be mindful of overflow
+		return containing->emplace_back<T>();
+	}
+
+	/**
+	 * Count the number of objects equal to obj that are contained in this
+	 * array.
+	 */
+	int count(T const& obj) const {
+		int result = 0;
+		for (auto& i: *this)
+			if (i == obj) ++result;
+		return result;
+	}
+    
+	/**
+	 * Returns the smallest index containing an equal object or -1 of no such
+	 * object exists.
+	 */
+	int index(T const& obj) const {
+        for (int i = 0; i < size(); ++i) {
+            if ((*this)[i] == obj) return i;
+        }
+        return -1;
+	}
+
+    operator bool() const { return m_size; }
+};
+
 
 template <typename _Offset_t = u16, typename _Size_t = u8>
 struct Flat_array_ref_base {
@@ -406,12 +485,16 @@ struct Diff_flat_arrays_base {
         ADD, REMOVE
     };
 
-    Buffer* container;
+    Buffer* container = nullptr;
     Buffer diffs;
     int _first;
 
-    Diff_flat_arrays_base(Buffer* container): container{container} {
-        assert(container);
+    Diff_flat_arrays_base() {}
+    Diff_flat_arrays_base(Buffer* container) { init(container); }
+    
+    void init(Buffer* container_) {
+        assert(container_);
+        container = container_;
         diffs.emplace_back<Flat_array<Flat_array_ref>>(&diffs);
     }
 
@@ -461,6 +544,12 @@ struct Diff_flat_arrays_base {
         diffs.emplace_back<u8>(REMOVE);
         diffs.emplace_back<u8>((u8) index);
         diffs.emplace_back<u8>((u8) i);
+    }
+
+    template <typename Flat_array_t>
+    void remove_ptr(Flat_array_t const& arr, typename Flat_array_t::Type const* ptr) {
+        assert(arr.begin() <= ptr and ptr < arr.end());
+        remove(arr, ptr - arr.begin());
     }
 
     Flat_array<Flat_array_ref>& refs() { return diffs.get<Flat_array<Flat_array_ref>>(); }

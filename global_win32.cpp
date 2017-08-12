@@ -1,5 +1,6 @@
 
 #include "server.hpp"
+#include "utilities.hpp"
 
 #include "stack_walker_win32.hpp"
 
@@ -11,6 +12,21 @@ std::ostream& jerr = std::cerr;
 bool program_closing = false;
 
 void debug_break() {}
+
+Buffer_view jup_exec(jup_str cmd) {
+    FILE* pipe = _popen(cmd.c_str(), "r");
+    assert_errno(pipe);
+
+    tmp_alloc_buffer().reset();
+    tmp_alloc_buffer().reserve_space(256);
+    while (not std::feof(pipe)) {
+        if (std::fgets(tmp_alloc_buffer().end(), tmp_alloc_buffer().capacity(), pipe)) {
+            tmp_alloc_buffer().addsize(std::strlen(tmp_alloc_buffer().end()));
+        }
+    }
+    _pclose(pipe);
+    return tmp_alloc_buffer();
+}
 
 void err_msg(c_str msg, int err) {
     int l = std::strlen(msg);
@@ -35,6 +51,57 @@ void win_last_errmsg() {
     err_msg(msg, err);
 }
 
+void print_symbol(char const* exe, u64 offset) {
+    // replace jup.exe with build_files/jup.exe
+    int index = -1;
+    for (int i = 0; i+7 <= (int)std::strlen(exe); ++i) {
+        if (std::strncmp(exe + i, "jup.exe", 7) == 0) {
+            index = i;
+        }
+    }
+    jup_str cmdline;
+    if (index == -1) {
+        cmdline = jup_printf("addr2line -C -f -e %s 0x%I64x", exe, offset);
+    } else {
+        char* exe_ = (char*)alloca(index);
+        std::memcpy(exe_, exe, index);
+        exe_[index] = 0;
+        cmdline = jup_printf("addr2line -C -f -e %sbuild_files/jup.exe 0x%I64x", exe_, offset);
+    }
+    
+    auto str = jup_exec(cmdline);
+    if (not str.size()) return;
+
+    char* dem_name = (char*)alloca(str.size());
+    char* fil_name = (char*)alloca(str.size());
+    char* fii_name = (char*)alloca(str.size());
+    int line;
+    std::sscanf(str.c_str(), "%[^\n]\n%[^\\/]%[^:]:%d\n", dem_name, fil_name, fii_name, &line);
+
+    std::memcpy(fil_name + std::strlen(fil_name), fii_name, std::strlen(fii_name) + 1);
+
+    for (int j = std::strlen(dem_name) - 1; j >= 0; --j) {
+        if (dem_name[j] == '(') dem_name[j] = 0;
+    }
+
+    if (std::strcmp(dem_name, "jup::print_stacktrace") == 0) return;
+    if (std::strcmp(dem_name, "jup::die") == 0) return;
+    if (std::strcmp(dem_name, "jup::_assert_fail") == 0) return;
+    if (std::strcmp(dem_name, "StackWalker::ShowCallstack") == 0) return;
+        
+    if (line == -1) {
+        jerr << "  (filename not available): " << dem_name << '\n';
+    } else {
+        char pwd [MAX_PATH];
+        _getcwd(pwd, sizeof(pwd)); // Ignore error, since we are crashing anyways
+        if (std::strncmp(pwd, fil_name, std::strlen(pwd)) == 0 and std::strlen(pwd) > 1) {
+            fil_name += std::strlen(pwd) - 1;
+            fil_name[0] = '.';
+        }
+        jerr << "  " << fil_name << ":" << line << ": " << dem_name << '\n';
+    }
+}
+
 class MyStackWalker : public StackWalker {
     using StackWalker::StackWalker;
 protected:
@@ -44,6 +111,9 @@ protected:
     
     void OnCallstackEntry(CallstackEntryType eType, CallstackEntry& entry) override {
         if (eType == lastEntry || entry.offset == 0) return;
+#if 1
+        print_symbol(entry.loadedImageName, entry.offset);
+#else   
         CHAR buffer[STACKWALK_MAX_NAMELEN];
 
         if (std::strcmp(entry.name, "ShowCallstack") == 0) return;
@@ -67,6 +137,7 @@ protected:
                 entry.lineFileName, (int)entry.lineNumber, entry.name);
         }
         OnOutput(buffer);
+#endif
     }
     
     void OnOutput(LPCSTR szText) override {
@@ -82,7 +153,7 @@ protected:
 
 void _assert_fail(c_str expr_str, c_str file, int line) {
     jerr << "\nError: Assertion failed. File: " << file << ", Line " << line
-         << "\n\nExpression: " << expr_str << "\n\nStack trace:\n";
+         << "\n\nExpression: " << expr_str << "\n";
     
     die();
 }

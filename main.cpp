@@ -5,8 +5,8 @@
 #include "system.hpp"
 #include "server.hpp"
 #include "statistics.hpp"
-#include "debug.hpp"
 #include "test.hpp"
+#include "utilities.hpp"
 
 using namespace jup;
 
@@ -23,6 +23,8 @@ void print_usage(c_str argv0) {
 		<< " " << HOST_PORT << " [port]  The port for connecting with an external server.\n"
 		<< " " << DUMP_XML << " [path]  Debug option. If this is specified all xml messages betwe"
 		<< "en the server and the program are dumped into a file.\n\n"
+        << " " << MASSIM_QUIET << "  The output of the internal MASSim is not printed to the "
+        << "console.\n"
 		<< " " << ADD_AGENT << " [name] [password]  The login credentials for an agent. This opti"
 		<< "on may be specified multiple times. It also may use the % symbol at the end of a name,"
 		<< "which will be replaced by the numbers 1 to " << agents_per_team << ". For compatibilit"
@@ -86,6 +88,8 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
             if (not pop(&into->dump_xml)) {
                 return false;
             }
+        } else if (arg == MASSIM_QUIET) {
+            into->massim_quiet = true;
         } else if (arg == STATS_FILE) {
             if (not pop(&into->statistics_file)) {
                 return false;
@@ -97,6 +101,8 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
             }
 			if (tmp == LAMPE_SHIP_TEST) {
 				into->ship = Server_options::SHIP_TEST;
+			} else if (tmp == LAMPE_SHIP_TEST2) {
+				into->ship = Server_options::SHIP_TEST2;
 			} else if (tmp == LAMPE_SHIP_STATS) {
 				into->ship = Server_options::SHIP_STATS;
 			} else if (tmp == LAMPE_SHIP_PLAY) {
@@ -251,6 +257,8 @@ int main(int argc, c_str const* argv) {
 		return 1;
 	}
 
+    Socket_context socket_context;
+    
 	if (options.ship == Server_options::SHIP_TEST) {
 		while (true) try {
 			auto server_wrapper = std::make_unique<Server>(options);
@@ -267,12 +275,28 @@ int main(int argc, c_str const* argv) {
 				return 2;
 			}
 
-			Socket_context socket_context;
 			server->register_mothership(&mothership);
 			server->run_simulation();
 		} catch (...) {
 
 		}
+	} else if (options.ship == Server_options::SHIP_TEST2) {
+        auto server_wrapper = std::make_unique<Server>(options);
+        server = server_wrapper.get();
+        Mothership_test2 mothership;
+        if (options.dump_xml) {
+            dump_xml = std::ofstream{ options.dump_xml.c_str() };
+            init_messages(&dump_xml);
+        } else {
+            init_messages();
+        }
+
+        if (not server->load_maps()) {
+            return 2;
+        }
+
+        server->register_mothership(&mothership);
+        server->run_simulation();
 	} else if (options.ship == Server_options::SHIP_PLAY) {
 		auto server_wrapper = std::make_unique<Server>(options);
 		server = server_wrapper.get();
@@ -289,7 +313,6 @@ int main(int argc, c_str const* argv) {
             return 2;
         }
         
-		Socket_context socket_context;
 		server->register_mothership(&mothership);
 		server->run_simulation();
 	} else {
@@ -309,7 +332,6 @@ int main(int argc, c_str const* argv) {
                     if (not server->load_maps()) {
                         return 2;
                     }
-                    Socket_context socket_context;
                     server->register_mothership(&mothership);
                     server->run_simulation();
 

@@ -66,6 +66,58 @@ void test_flat_diff() {
     jdbg < lst ,0;
 }
 
+void test_jdbg_diff() {
+    {int a = 4, b = 15;
+    jdbg_diff(a, b);
+    jdbg_diff(b, a);}
+
+    {Buffer q; q.reserve(2048);
+    auto& a = q.emplace_back<Flat_array<u8>>(&q);
+    for (u8 i: {1, 3, 5, 7, 9, 11, 13, 15, 17}) a.push_back(i, &q);
+    auto& b = q.emplace_back<Flat_array<u8>>(&q);
+    for (u8 i: {2, 3, 5, 7, 11, 13, 17, 19, 21}) b.push_back(i, &q);
+    jdbg_diff(a, b);
+    jdbg_diff(b, a);}
+
+    init_messages();
+    u8 id[6];
+    for (int i = 0; i < (int)std::size(id); ++i) {
+        id[i] = register_id(jup_printf("item%d", i));
+    }
+    u8 role[6];
+    for (int i = 0; i < (int)std::size(id); ++i) {
+        role[i] = register_id(jup_printf("role%d", i));
+    }
+    
+    {Buffer q; q.reserve(2048);
+    auto& a = q.emplace_back<Flat_array<Item_stack>>(&q);
+    for (Item_stack i: {Item_stack {id[0], 10}, {id[1], 10}, {id[2], 10}, {id[3], 10}, {id[4], 10}}) a.push_back(i, &q);
+    auto& b = q.emplace_back<Flat_array<Item_stack>>(&q);
+    for (Item_stack i: {Item_stack {id[0], 10}, {id[2], 12}, {id[3], 7}, {id[4], 10}, {id[5], 10}}) b.push_back(i, &q);
+    jdbg_diff(a, b);
+    jdbg_diff(b, a);}
+
+    {Buffer q; q.reserve(2048);
+    auto& a = q.emplace_back<Flat_array<Role>>(&q);
+    for (u8 i: {10, 20, 30, 40, 50}) a.push_back(Role {role[a.size()], i, 17, 19}, &q);
+    for (int i = 0; i < a.size(); ++i) {
+        a[i].tools.init(&q);
+        if (i == 0) { for (u8 j: {0, 1, 2}) a[i].tools.push_back(id[j], &q); }
+        if (i == 2) { for (u8 j: {1, 3, 4}) a[i].tools.push_back(id[j], &q); }
+        if (i == 3) { for (u8 j: {3, 4}   ) a[i].tools.push_back(id[j], &q); }
+    }
+    auto& b = q.emplace_back<Flat_array<Role>>(&q);
+    for (u8 i: {10, 20, 30, 40}) b.push_back(Role {role[b.size()], i, 17, 19}, &q);
+    for (int i = 0; i < b.size(); ++i) {
+        b[i].tools.init(&q);
+        if (i == 0) { for (u8 j: {0, 1, 3}) b[i].tools.push_back(id[j], &q); }
+        if (i == 2) { for (u8 j: {1, 4}) b[i].tools.push_back(id[j], &q); }
+        if (i == 3) { for (u8 j: {3, 4}) b[i].tools.push_back(id[j], &q); }
+    }
+    jdbg_diff(a, b);
+    jdbg_diff(b, a);}
+}
+
 void Mothership_test::init(Graph const* g) {
 	graph = g;
 }
@@ -157,6 +209,43 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 	oldsp = spos;
 	into->emplace_back<Action_Goto2>(target);
 }
+
+void Mothership_test2::init(Graph const* graph_) {
+    graph = graph_;
+    world_buffer.reset();
+    sit_buffer.reset();
+}
+
+void Mothership_test2::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
+    if (agent == 0) {
+        world_buffer.emplace_back<World>(simulation, graph, &world_buffer);
+    }
+    world().update(simulation, agent, &world_buffer);
+}
+
+void Mothership_test2::pre_request_action() {}
+
+void Mothership_test2::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
+    if (perc.simulation_step == 1) {
+        if (agent == 0) {
+            sit_buffer.emplace_back<Situation>(perc, nullptr, &sit_buffer);
+        }
+        sit().update(perc, agent, &sit_buffer);
+        sim_state.init(&world(), &sit_buffer, 0, sit_buffer.size());
+        sim_state.reset();
+        sim_state.fast_forward(10);
+        jdbg_diff(sim_state.orig(), sim_state.sit());
+    }
+}
+
+void Mothership_test2::on_request_action() {
+    
+}
+
+void Mothership_test2::post_request_action(u8 agent, Buffer* into) {
+
+}
+
 
 
 } /* end of namespace jup */
