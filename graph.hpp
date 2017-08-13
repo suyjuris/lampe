@@ -11,6 +11,7 @@ struct Edge;
 
 constexpr u32 node_invalid = 0xffffffff;
 constexpr u32 edge_invalid = 0xffffffff;
+constexpr u32 landmark_invalid = 0xffffffff;
 
 struct Edge_iterator: public std::iterator<Edge, std::forward_iterator_tag> {
     Graph const* graph = nullptr;
@@ -57,11 +58,11 @@ struct u24 {
 	u16 lb;
 	u8 hb;
 	
-	u24() {}
-	u24(u24 const& copy) : lb{ copy.lb }, hb{ copy.hb } {}
-	u24(u32 const& val) : lb{ (u16)(val & 0xffff) }, hb{ (u8)((val & 0xff0000) >> 16) } { assert(val < 0x1000000); }
-	u24 operator=(u32 val) { assert(val < 0x1000000); lb = (u16)(val & 0xffff); hb = (u8)((val & 0xff0000) >> 16); return *this; }
-	operator u32() const { return ((u32)hb << 16) | lb; }
+	inline u24() {}
+	inline u24(u24 const& copy) : lb{ copy.lb }, hb{ copy.hb } {}
+	inline u24(u32 const& val) : lb{ (u16)(val & 0xffff) }, hb{ (u8)((val & 0xff0000) >> 16) } { assert(val < 0x1000000); }
+	inline u24 operator=(u32 val) { assert(val < 0x1000000); lb = (u16)(val & 0xffff); hb = (u8)((val & 0xff0000) >> 16); return *this; }
+	inline operator u32() const { return ((u32)hb << 16) | lb; }
 };
 
 struct Graph_position {
@@ -71,17 +72,21 @@ struct Graph_position {
 	u24 id;
 	u8 edge_pos;
 
-	Graph_position() {}
-	Graph_position(u24 id, u8 edge_pos) : id{ id }, edge_pos{ edge_pos } {}
-	Graph_position(u24 id, float edge_pos) : id{ id } { set_edge_pos(edge_pos); }
+	inline Graph_position() {}
+	inline Graph_position(u24 id) : id{ id }, edge_pos{ 0 } {}
+	inline Graph_position(u24 id, u8 edge_pos) : id{ id }, edge_pos{ edge_pos } {}
+	inline Graph_position(u24 id, float edge_pos) : id{ id } { set_edge_pos(edge_pos); }
 
 	Pos pos(Graph const& graph) const;
-	float get_edge_pos() const { assert(edge_pos); return (edge_pos - 0.5f) / 255.f; }
-	void set_edge_pos(float val) {
+	inline float get_edge_pos() const { assert(edge_pos); return (edge_pos - 0.5f) / 255.f; }
+	inline void set_edge_pos(float val) {
 		assert(val >= 0 && val <= 1);
 		edge_pos = (u8)floor(val * 255.f);
 		if (edge_pos < 255) ++edge_pos;
 	}
+	inline bool is_edge() const { return edge_pos; }
+	inline bool is_node() const { return !edge_pos; }
+	std::pair<Graph_position, Graph_position> operator,(Graph_position other) { return{ *this, other }; }
 };
 
 struct Graph {
@@ -91,6 +96,7 @@ struct Graph {
 	static constexpr int const geo_size = (sizeof(Geometry_t::Offset_t) + sizeof(Geometry_t::Size_t));
 	static_assert(sizeof(Geometry_t::Type) == 2 * geo_size, "Geometry offset mismatch");
 	using Route_t = Flat_array<u32, u16, u16>;
+	using Landmarks_t = Flat_array<std::pair<u32, u32>, u32, u32>;
 
 
     /**
@@ -105,17 +111,32 @@ struct Graph {
     Pos get_pos(double lat, double lon) const;
 
 	/**
+	 * Returns linear distance between two points in meters
+	 */
+	float dist_air(Pos const a, Pos const b) const;
+
+	/**
 	 * Returns the nearest node or edge
 	 */
-	Graph_position pos(Pos pos) const;
+	Graph_position pos(Pos const pos) const;
 
 	/**
 	 * Returns the distance of the shortest route between two positions
 	 * Optionally writes that route into a buffer
 	 */
-	u32 dijkstra(Graph_position s, Graph_position t, Buffer* into = nullptr) const;
-	u32 dijkstra(Pos s, Pos t, Buffer* into = nullptr) const { return dijkstra(pos(s), pos(t), into); };
+	u32 dist_road(Graph_position const s, Graph_position const t, Buffer* into = nullptr) const;
     
+	struct {
+		Graph const* g;
+		u32 operator*(std::pair<Graph_position, Graph_position> arg) {
+			return g->dist_road(arg.first, arg.second, nullptr);
+		}
+	} A{ this };
+
+	void add_landmark(u32 node);
+	void add_landmark(Graph_position pos);
+	u32 landmark(u32 node) const;
+
     /**
      * Returns the actual coordinates from a position
      */
@@ -125,6 +146,10 @@ struct Graph {
     auto const& nodes() const { return m_data.get_c<Nodes_t>(node_offset); }
 	auto const& edges() const { return m_data.get_c<Edges_t>(edge_offset); }
 	auto const& geometry(u32 ofs) const { return m_data.get_c<Geometry_t>(geometry_offset + geo_size * ofs); }
+	auto const* landmark_distf(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 0) * nodes().size(); }
+	auto const* landmark_prev(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 1) * nodes().size(); }
+	auto const* landmark_distb(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 2) * nodes().size(); }
+	auto const* landmark_next(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 3) * nodes().size(); }
 
     double map_min_lat = 0.0;
     double map_max_lat = 0.0;
@@ -140,8 +165,10 @@ struct Graph {
 	int geometry_offset = -1;
 	int name_offset = -1;
 
-    int name_size = 0;
+	int name_size = 0;
 
+	Buffer landmark_buffer;
+	Buffer landmark_data;
 };
 
 } /* end of namespace jup */

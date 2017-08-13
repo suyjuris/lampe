@@ -3,6 +3,7 @@
 #include "test.hpp"
 #include "messages.hpp"
 #include <set>
+#include <ctime>
 
 namespace jup {
 
@@ -118,13 +119,15 @@ void test_jdbg_diff() {
     jdbg_diff(b, a);}
 }
 
-void Mothership_test::init(Graph const* g) {
+void Mothership_test::init(Graph* g) {
 	graph = g;
 }
 
 void Mothership_test::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
 	sim_offsets[agent] = general_buffer.size();
 	general_buffer.append(&simulation, sim_size);
+	data_offset = general_buffer.size();
+	general_buffer.emplace_back<Simulation_data>();
 	srand(time(nullptr));
 }
 
@@ -134,6 +137,8 @@ void Mothership_test::pre_request_action() {
 }
 
 u32 dt, dls, dlm, dc, dhm, dhs, dm;
+u32 it = 0, it_p = 0;
+u64 total_time = 0, total_time_p = 0;
 
 void Mothership_test::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
 	perc_offsets[agent] = step_buffer.size();
@@ -141,6 +146,23 @@ void Mothership_test::pre_request_action(u8 agent, Percept const& perc, int perc
 	if (agent == 0 && perc.simulation_step == 0) {
 		jout << "NODES: " << graph->nodes().size() << endl;
 		jout << "EDGES: " << graph->edges().size() << endl;
+		if (false) {
+			for (auto const& f : perc.charging_stations) {
+				graph->add_landmark(graph->pos(f.pos));
+			}
+			for (auto const& f : perc.dumps) {
+				graph->add_landmark(graph->pos(f.pos));
+			}
+			for (auto const& f : perc.shops) {
+				graph->add_landmark(graph->pos(f.pos));
+			}
+			for (auto const& f : perc.storages) {
+				graph->add_landmark(graph->pos(f.pos));
+			}
+			for (auto const& f : perc.workshops) {
+				graph->add_landmark(graph->pos(f.pos));
+			}
+		}
 	}
 }
 
@@ -167,14 +189,27 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 		return;
 	}
 	Pos pos = perc().self.pos;
+	auto start = std::chrono::high_resolution_clock::now();
 	Graph_position spos = graph->pos(pos);
+	total_time_p += (std::chrono::high_resolution_clock::now() - start).count();
+	++it_p;
 	if (perc().simulation_step > 0) {
-		u32 newdist = graph->dijkstra(spos, graph->pos(target));
-		u32 dist = graph->dijkstra(oldsp, spos);
-		assert(dist > 1000);
-		if (dist < 990000) goto ls;
-		else if (dist < 1010000) { ++dm; --dt; }
-		else if (dist < 1400000) {
+		start = std::chrono::high_resolution_clock::now();
+		auto tmpgp = graph->pos(target);
+		total_time_p += (std::chrono::high_resolution_clock::now() - start).count();
+		++it_p;
+		step_buffer.emplace_back<Graph_position>(tmpgp);
+		start = std::chrono::high_resolution_clock::now();
+		u32 newdist = graph->A*(spos, tmpgp);
+		u32 dist = graph->A*(oldsp, spos);
+		total_time += (std::chrono::high_resolution_clock::now() - start).count();
+		it += 2;
+		if (dist < 1000) {
+			throw(0);
+		}
+		if (dist < 390000) goto ls;
+		else if (dist < 410000) { ++dm; --dt; }
+		else if (dist < 570000) {
 			ls:
 			++dls;
 			printf("<<<<<\n<<<<<\n<<<<<\n<<<<<\n<<<<<\n");
@@ -183,9 +218,9 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 				b = graph->get_pos_back(spos.pos(*graph));
 			jout << a.first << ", " << a.second << ", " << b.first << ", " << b.second << endl;
 		}
-		else if (dist < 1490000) ++dlm;
-		else if (dist < 1510000) ++dc;
-		else if (dist < 1600000) ++dhm;
+		else if (dist < 594000) ++dlm;
+		else if (dist < 606000) ++dc;
+		else if (dist < 630000) ++dhm;
 		else {
 			++dhs;
 			printf(">>>>>\n>>>>>\n>>>>>\n>>>>>\n>>>>>\n");
@@ -203,14 +238,24 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 	}
 	do {
 		target = perc().shops[rand() % perc().shops.size()].pos;
-		olddist = graph->dijkstra(spos, graph->pos(target));
-	} while (olddist < 3500000);
+		start = std::chrono::high_resolution_clock::now();
+		auto tmpgp = graph->pos(target);
+		total_time_p += (std::chrono::high_resolution_clock::now() - start).count();
+		++it_p;
+		step_buffer.emplace_back<Graph_position>(tmpgp);
+		start = std::chrono::high_resolution_clock::now();
+		olddist = graph->A*(spos, tmpgp);
+		total_time += (std::chrono::high_resolution_clock::now() - start).count();
+		++it;
+	} while (olddist < 2500000);
 	oldp = pos;
 	oldsp = spos;
 	into->emplace_back<Action_Goto2>(target);
+	jout << "TIME: " << total_time / (it * 1000000.0) << endl;
+	jout << "TIME_P: " << total_time_p / (it_p * 1000000.0) << endl;
 }
 
-void Mothership_test2::init(Graph const* graph_) {
+void Mothership_test2::init(Graph* graph_) {
     graph = graph_;
     world_buffer.reset();
     sit_buffer.reset();

@@ -43,7 +43,7 @@ struct Task_result {
 
 class World {
 public:
-    World(Simulation const& s0, Graph const* graph, Buffer* containing);
+    World(Simulation const& s0, Graph* graph, Buffer* containing);
     void update(Simulation const& s, u8 id, Buffer* containing);
 
 	u8 team;
@@ -51,7 +51,7 @@ public:
 	u16 steps;
 	Flat_array<Item> items;
     Flat_array<Role> roles;
-    Graph const* graph;
+    Graph* graph;
 };
 
 struct Job_item {

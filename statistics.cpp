@@ -2,7 +2,7 @@
 
 namespace jup {
 
-void Mothership_statistics::init(Graph const* graph) {
+void Mothership_statistics::init(Graph* graph) {
 }
 
 void Mothership_statistics::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {

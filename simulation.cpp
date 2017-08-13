@@ -18,7 +18,7 @@ static constexpr Params params;
         this_->name[i].sub.init(obj.name[i].sub, buf);
 
 
-World::World(Simulation const& s0, Graph const* graph, Buffer* containing):
+World::World(Simulation const& s0, Graph* graph, Buffer* containing):
     team{s0.team},
     seed_capital{s0.seed_capital},
     steps{s0.steps},
@@ -354,7 +354,7 @@ void Situation::agent_goto_nl(World const& world, u8 agent, u8 target_id) {
     Pos target = find_pos(target_id);
     auto p1 = world.graph->pos(d.pos);
     auto p2 = world.graph->pos(target);
-    u32 dist = world.graph->dijkstra(p1, p2);
+    u32 dist = world.graph->dist_road(p1, p2);
 
     auto speed = world.roles[agent].speed;
     
@@ -762,8 +762,8 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
     u8 min_arg;
     for (auto& i: orig().charging_stations) {
         auto pos_g = world->graph->pos(i.pos);
-        u32 d = world->graph->dijkstra(from_g, pos_g)
-              + world->graph->dijkstra(pos_g, to_g);
+        u32 d = world->graph->dist_road(from_g, pos_g)
+              + world->graph->dist_road(pos_g, to_g);
         // TODO: Respect charging time
         
         if (d < min_dist) {
@@ -906,8 +906,8 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
             }
             
             auto pos_g = world->graph->pos(i.pos);
-            u32 d = world->graph->dijkstra(from_g, pos_g)
-                + world->graph->dijkstra(pos_g, to_g);
+            u32 d = world->graph->dist_road(from_g, pos_g)
+                + world->graph->dist_road(pos_g, to_g);
             // TODO: Respect costs
         
             if (d < min_dist) {
