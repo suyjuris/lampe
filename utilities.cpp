@@ -4,13 +4,24 @@
 
 namespace jup {
 
-static Buffer tmp_buffer;
+static Arena tmp_arena;
 
 // see header
 void* tmp_alloc(int size) {
-    tmp_buffer.reserve(size);
-    return tmp_buffer.data();
+    return tmp_arena.allocate(size);
 }
+
+// see header
+void tmp_alloc_reset() {
+    tmp_arena.reset();
+}
+
+// see header
+Arena& tmp_alloc_arena() {
+    return tmp_arena;
+}
+
+static Buffer tmp_buffer;
 
 // see header
 Buffer& tmp_alloc_buffer() {
@@ -33,7 +44,7 @@ jup_str nice_bytes(u64 bytes) {
 
 
 jup_str nice_oct(Buffer_view data, bool swap)  {
-    tmp_buffer.resize((data.size() * 8 + 2) / 3 + 1);
+    char* tmp = (char*)tmp_alloc((data.size() * 8 + 2) / 3 + 1);
 
     auto get_byte = [swap, data](int i) {
         return (u8)data[swap ? data.size() -i-1 : i];
@@ -55,7 +66,7 @@ jup_str nice_oct(Buffer_view data, bool swap)  {
     if (i_bit > 0) {
         u8 val = get_byte(0) >> (8 - i_bit);
         if (val or flag) {
-            tmp_buffer[i++] = '0' + val;
+            tmp[i++] = '0' + val;
             flag = true;
         }
     }
@@ -63,29 +74,28 @@ jup_str nice_oct(Buffer_view data, bool swap)  {
     for (;i_bit < data.size() * 8; i_bit += 3) {
         u8 val = get_bits(i_bit);
         if (val or flag) {
-            tmp_buffer[i++] = '0' + val;
+            tmp[i++] = '0' + val;
             flag = true;
         }
     }
 
-    tmp_buffer[i] = '\0';
-    tmp_buffer.resize(i);
-    return tmp_buffer;
+    tmp[i] = '\0';
+    return {tmp, i};
 }
 
 jup_str nice_hex(Buffer_view data) {
-    tmp_buffer.resize(data.size() * 2 + 1);
+    char* tmp = (char*)tmp_alloc(data.size() * 2 + 1);
 
     for (int i = 0; i < data.size(); ++i) {
         char c1 = (u8)data[i] >> 4;
         char c2 = (u8)data[i] & 15;
         c1 = c1 < 10 ? c1 + '0' : c1 - 10 + 'a';
         c2 = c2 < 10 ? c2 + '0' : c2 - 10 + 'a';
-        tmp_buffer[2*i]     = c1;
-        tmp_buffer[2*i + 1] = c2;
+        tmp[2*i]     = c1;
+        tmp[2*i + 1] = c2;
     }
-    tmp_buffer.back() = '\0';
-    return tmp_buffer;
+    tmp[data.size() * 2] = '\0';
+    return {tmp, data.size() * 2};
 }
 
 void print_wrapped(std::ostream& out, jup_str str) {

@@ -687,7 +687,6 @@ void send_message(Socket& sock, Message_Action const& mess) {
         xml_auth.append_attribute("id") = mess.id;
         xml_auth.append_attribute("type") = Action::get_name(mess.action->type);
 
-
 		Action const& action = *mess.action;
 
 #define next_arg xml_auth.append_child("p").text()
@@ -745,6 +744,7 @@ void send_message(Socket& sock, Message_Action const& mess) {
 		case Action::RECHARGE:
 		case Action::CONTINUE:
 		case Action::SKIP:
+		case Action::ABORT:
 		case Action::GATHER:
 		case Action::GOTO0:
 			break;

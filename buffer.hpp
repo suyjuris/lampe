@@ -152,8 +152,10 @@ struct Buffer_guard {
         std::swap(trap_alloc, g.trap_alloc);
         return *this;
     }
+
+    ~Buffer_guard() { free(); }
     
-    ~Buffer_guard();
+    void free();
 };
 
 /**
@@ -465,10 +467,11 @@ inline Buffer_guard::Buffer_guard(Buffer& buf, int size_incr):
 {
     buf.trap_alloc(true);
 }
-inline Buffer_guard::~Buffer_guard() {
+inline void Buffer_guard::free() {
     if (buf) {
         assert(buf->size() == size_target);
         buf->trap_alloc(trap_alloc);
+        buf = nullptr;
     }
 }
 

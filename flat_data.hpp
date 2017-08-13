@@ -196,6 +196,7 @@ struct Flat_list {
  */
 template <typename T, typename _Offset_t = u16, typename _Size_t = u8>
 struct Flat_array {
+	using value_type = T;
 	using Type = T;
 	using Offset_t = _Offset_t;
 	using Size_t = _Size_t;
@@ -502,13 +503,17 @@ struct Diff_flat_arrays_base {
     void register_arr(Flat_array_t const& arr) {
         refs().push_back(Flat_array_ref {arr, *container}, &diffs);
         std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
-            return a.first_byte(*container) < b.first_byte(*container);
+            return a.last_byte(*container) < b.last_byte(*container);
         });
         _first = diffs.size();
     }
 
     int first() {
         assert(_first > 0);
+        if (_first >= diffs.size()) {
+            assert(_first == diffs.size());
+            return 0;
+        }
         return _first;
     }
     void next(int* offset) {

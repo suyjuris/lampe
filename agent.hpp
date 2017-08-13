@@ -1,9 +1,5 @@
 #pragma once
 
-#include "buffer.hpp"
-#include "objects.hpp"
-#include "server.hpp"
-
 namespace jup {
 
 constexpr u8 agents_per_team = 28;

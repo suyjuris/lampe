@@ -55,6 +55,9 @@ void print_symbol(char const* exe, u64 offset) {
     // replace jup.exe with build_files/jup.exe
     int index = -1;
     for (int i = 0; i+7 <= (int)std::strlen(exe); ++i) {
+        if (i+11<= (int)std::strlen(exe) and std::strncmp(exe + i, "build_files", 11) == 0) {
+            break;
+        }
         if (std::strncmp(exe + i, "jup.exe", 7) == 0) {
             index = i;
         }
@@ -71,6 +74,7 @@ void print_symbol(char const* exe, u64 offset) {
     
     auto str = jup_exec(cmdline);
     if (not str.size()) return;
+    if (str[0] == '?') return;
 
     char* dem_name = (char*)alloca(str.size());
     char* fil_name = (char*)alloca(str.size());
@@ -175,10 +179,12 @@ void die(c_str msg, int err) {
     die();
 }
 
-void die() {
-    jerr << "\nStack trace:\n";
-    MyStackWalker sw;
-    sw.ShowCallstack();
+void die(bool show_stacktrace) {
+    if (show_stacktrace) {
+        jerr << "\nStack trace:\n";
+        MyStackWalker sw;
+        sw.ShowCallstack();
+    }
     
     // This would be the more proper way, but I can't get mingw to link a recent
     // version of msvcr without recompiling a lot of stuff.

@@ -1,14 +1,21 @@
 #include "simulation.hpp"
 
+#include "debug.hpp"
+
 namespace jup {
 
 static constexpr Params params;
 
+#define SIZE_ARRAY(obj, buf, name) \
+    size += obj.name.extra_space(obj.name.size());
+#define SIZE_SUBARR(obj, buf, name, sub) \
+    for (int i = 0; i < obj.name.size(); ++i) \
+        size += obj.name[i].sub.extra_space(obj.name[i].sub.size());
 #define COPY_ARRAY(obj, buf, name) \
-    name.init(obj.name, (buf));
+    this_->name.init(obj.name, (buf));
 #define COPY_SUBARR(obj, buf, name, sub) \
     for (int i = 0; i < obj.name.size(); ++i) \
-        name[i].sub.init(obj.name[i].sub, buf);
+        this_->name[i].sub.init(obj.name[i].sub, buf);
 
 
 World::World(Simulation const& s0, Graph const* graph, Buffer* containing):
@@ -18,13 +25,23 @@ World::World(Simulation const& s0, Graph const* graph, Buffer* containing):
     graph{graph}
 {
     assert(graph);
-    assert(containing and containing->inside(this));    
+    assert(containing and containing->inside(this));
+
+    int this_offset = (char*)this - containing->begin();
+    int size = 0;
+    SIZE_ARRAY (s0, containing, items);
+    SIZE_SUBARR(s0, containing, items, consumed);
+    SIZE_SUBARR(s0, containing, items, tools);
+    
+    size += roles.extra_space(number_of_agents);
+    auto guard = containing->reserve_guard(size);
+    auto this_ = &containing->get<World>(this_offset);
 
     COPY_ARRAY (s0, containing, items);
     COPY_SUBARR(s0, containing, items, consumed);
     COPY_SUBARR(s0, containing, items, tools);
 
-    roles.init(number_of_agents, containing);
+    this_->roles.init(number_of_agents, containing);
 }
 
 void World::update(Simulation const& s, u8 id, Buffer* containing) {
@@ -35,6 +52,7 @@ void World::update(Simulation const& s, u8 id, Buffer* containing) {
     roles[id].speed = s.role.speed;
     roles[id].battery = s.role.battery;
     roles[id].load = s.role.load;
+    // This may invalidate us, but that is okay
     roles[id].tools.init(s.role.tools, containing);
 }
 
@@ -44,7 +62,31 @@ Situation::Situation(Percept const& p0, Bookkeeping const* book_old, Buffer* con
     team_money{p0.team_money}
 {
     assert(containing and containing->inside(this));
-
+    
+    int this_offset = (char*)this - containing->begin();
+    
+    {int size = 0;
+    SIZE_ARRAY (p0, containing, entities);
+    SIZE_ARRAY (p0, containing, charging_stations);
+    SIZE_ARRAY (p0, containing, dumps);
+    SIZE_ARRAY (p0, containing, shops);
+    SIZE_SUBARR(p0, containing, shops, items);
+    SIZE_ARRAY (p0, containing, storages);
+    SIZE_SUBARR(p0, containing, storages, items);
+    SIZE_ARRAY (p0, containing, workshops);
+    SIZE_ARRAY (p0, containing, resource_nodes);
+    SIZE_ARRAY (p0, containing, auctions);
+    SIZE_SUBARR(p0, containing, auctions, required);
+    SIZE_ARRAY (p0, containing, jobs);
+    SIZE_SUBARR(p0, containing, jobs, required)
+    SIZE_ARRAY (p0, containing, missions);
+    SIZE_SUBARR(p0, containing, missions, required);
+    SIZE_ARRAY (p0, containing, posteds);
+    SIZE_SUBARR(p0, containing, posteds, required);
+    
+    auto guard = containing->reserve_guard(size);
+    auto this_ = &containing->get<Situation>(this_offset);
+    
     COPY_ARRAY (p0, containing, entities);
     COPY_ARRAY (p0, containing, charging_stations);
     COPY_ARRAY (p0, containing, dumps);
@@ -61,20 +103,25 @@ Situation::Situation(Percept const& p0, Bookkeeping const* book_old, Buffer* con
     COPY_ARRAY (p0, containing, missions);
     COPY_SUBARR(p0, containing, missions, required);
     COPY_ARRAY (p0, containing, posteds);
-    COPY_SUBARR(p0, containing, posteds, required);
-
-    book.delivered.init(containing);
+    COPY_SUBARR(p0, containing, posteds, required);}
+    
+    int size = decltype(book_old->delivered)::extra_space(book_old ? book_old->delivered.size() : 0);
+    containing->reserve_space(size);
+    auto this_ = &containing->get<Situation>(this_offset);
+    
+    this_->book.delivered.init(containing);
     if (book_old) {
         for (auto i: book_old->delivered) {
-            // Ignore the ones there are no jobs for, these jobs have been completeted or they have
-            // expired.
+            // Ignore the ones there are no jobs for
             if (find_by_id(jobs, i.job_id)) {
-                book.delivered.push_back(i, containing);
+                this_->book.delivered.push_back(i, containing);
             }
         }
     }
 }
     
+#undef SIZE_ARRAY
+#undef SIZE_SUBARR
 #undef COPY_ARRAY
 #undef COPY_SUBARR
 
@@ -92,6 +139,10 @@ void Situation::update(Percept const& p, u8 id, Buffer* containing) {
     assert(containing and containing->inside(this));
     
     assert(0 <= id and id < number_of_agents);
+    selves[id].id = p.self.id;
+    selves[id].team = p.self.team;
+    selves[id].pos = p.self.pos;
+    selves[id].role = p.self.role;
     selves[id].charge = p.self.charge;
     selves[id].load = p.self.load;
     selves[id].action_type = p.self.action_type;
@@ -102,6 +153,9 @@ void Situation::update(Percept const& p, u8 id, Buffer* containing) {
 void Situation::register_arr(Diff_flat_arrays* diff) {
     assert(diff);
     
+    for (u8 i = 0; i < number_of_agents; ++i) {
+        diff->register_arr(selves[i].items);
+    }
     diff->register_arr(entities);
     diff->register_arr(charging_stations);
     diff->register_arr(dumps);

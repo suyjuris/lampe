@@ -193,7 +193,12 @@ Debug_ostream& operator< (Debug_ostream& out, T const& obj) {
 	out.out << obj << ' '; return out;
 }
 inline Debug_ostream& operator< (Debug_ostream& out, char const* s) {
-	return out.printf(s);
+	out.out << s << ' '; return out;
+}
+inline Debug_ostream& operator> (Debug_ostream& out, char const* s) {
+    //for (auto i = s; *i; ++i) { out.out.put(*i != '\b' ? *i : '~'); }
+	out.out << s;
+    return out;
 }
 inline Debug_ostream& operator< (Debug_ostream& out, double d) {
 	return out.printf("%.2elf ", d);
@@ -216,7 +221,7 @@ template <typename T>
 void diff_var(Debug_ostream& out, Array<jup_str>& stack, jup_str prefix, char const* suffix, T const& a, T const& b) {
     stack.push_back(prefix);
     print_diff(out, stack, a, b);
-    if (not stack) { out < suffix; } else { stack.pop_back(); }
+    if (not stack) { out > suffix; } else { stack.pop_back(); }
 }
 
 template <typename T, typename std::enable_if<std::is_arithmetic<T>::value, int>::type = 0>
@@ -238,18 +243,24 @@ void print_diff_scalar(Debug_ostream& out, Array<jup_str>& stack, T const& a, T 
     }
 }
 
-template <typename T>
+template <typename T, bool newlined = not std::is_arithmetic
+    <std::remove_reference_t<decltype(std::declval<T>()[0])>>::value>
 void print_diff_array(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b) {
     assert(std::size(a) == std::size(b));
 
-    stack.push_back("{");
+    stack.push_back(newlined ? "{\n" : "{");
+    tab.n += newlined;
+    Debug_tabulator tmp_tab;
+    auto& t = newlined ? tab : tmp_tab;
     
     for (int i = 0; i < (int)std::size(a); ++i) {
+        stack.push_back(jup_printf("%*s", t.n*4, ""));
         print_diff(out, stack, a[i], b[i]);
-        if (not stack) out < ", ";
+        if (not stack) { out > (newlined ? ",\n" : ", ") ; } else { stack.pop_back(); }
     }
     
-    if (not stack) { out < "\b\b}"; } else { stack.pop_back(); }
+    tab.n -= newlined;
+    if (not stack) { out < t > (newlined ? "}" : "\b\b}"); } else { stack.pop_back(); }
 }
 
 template<class T, class = void>
@@ -278,18 +289,23 @@ auto get_identifier(T const& obj) -> decltype(obj.id) { return obj.id; }
 template <typename T, typename std::enable_if<not Type_has_id<T>::value, int>::type = 0>
 auto get_identifier(T const& obj) { return obj; }
 
-template <typename T>
+template <typename T, bool newlined = not std::is_arithmetic
+    <std::remove_reference_t<decltype(std::declval<T>()[0])>>::value>
 void print_diff_range(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b) {
-    stack.push_back("{");
+    stack.push_back(newlined ? "{\n" : "{");
+    constexpr char const* suffix = newlined ? "\b,\n" : "\b, ";
+    tab.n += newlined;
+    Debug_tabulator tmp_tab;
+    auto& t = newlined ? tab : tmp_tab;
     
     int a_i = 0;
     int b_i = 0;
 
     while (a_i < std::size(a) and b_i < std::size(b)) {
         if (get_identifier(a[a_i]) == get_identifier(b[b_i])) {
-            stack.push_back("");
+            stack.push_back(jup_printf("%*s", t.n*4, ""));
             print_diff(out, stack, a[a_i], b[b_i]);
-            if (not stack) { out < ", "; } else { stack.pop_back(); }
+            if (not stack) { out > (newlined ? ",\n" : ", ") ; } else { stack.pop_back(); }
             ++a_i; ++b_i;
         } else {
             int a_j = a_i + 1;
@@ -305,17 +321,17 @@ void print_diff_range(Debug_ostream& out, Array<jup_str>& stack, T const& a, T c
             if ((a_j <= b_j or b_j == std::size(b)) and a_j < std::size(a)) {
                 consume_prefix_stack(out, stack);
                 for (; a_i < a_j; ++a_i) {
-                    out < "<" < a[a_i] < "\b, ";
+                    out < t > "<" < a[a_i] > suffix;
                 }
             } else if ((b_j < a_j or a_j == std::size(a)) and b_j < std::size(b)) {
                 consume_prefix_stack(out, stack);
                 for (; b_i < b_j; ++b_i) {
-                    out < ">" < b[b_i] < "\b, ";
+                    out < t > ">" < b[b_i] > suffix;
                 }                
             } else {
                 consume_prefix_stack(out, stack);
-                out < "<" < a[a_i] < "\b, ";
-                out < ">" < b[b_i] < "\b, ";
+                out < t > "<" < a[a_i] > suffix;
+                out < t > ">" < b[b_i] > suffix;
                 ++a_i; ++b_i;
             }
         }
@@ -324,17 +340,18 @@ void print_diff_range(Debug_ostream& out, Array<jup_str>& stack, T const& a, T c
     if (a_i < std::size(a)) {
         consume_prefix_stack(out, stack);
         for (; a_i < std::size(a); ++a_i) {
-            out < "<" < a[a_i] < "\b, ";
+            out < t > "<" < a[a_i] > suffix;
         } 
     }
     if (b_i < std::size(b)) {
         consume_prefix_stack(out, stack);
         for (; b_i < std::size(b); ++b_i) {
-            out < ">" < b[b_i] < "\b, ";
+            out < t > ">" < b[b_i] > suffix;
         } 
     }
-    
-    if (not stack) { out < "\b\b}"; } else { stack.pop_back(); }
+
+    tab.n -= newlined;
+    if (not stack) { out < t > (newlined ? "}" : "\b\b}"); } else { stack.pop_back(); }
 }
 
 extern Debug_ostream jdbg;
@@ -347,11 +364,11 @@ void jdbg_diff(T const& a, T const& b) {
 }
 
 // type must have between 1 and 15 elements
-#define display_var1(var) < #var < " = " < obj.var < "\b, "
-#define display_var2(var, fmt) < #var < " = " < fmt(obj.var) < "\b, "
+#define display_var1(var) > #var " = " < obj.var > "\b, "
+#define display_var2(var, fmt) > #var " = " < fmt(obj.var) > "\b, "
 #define display_var(var) __select(display_var1, display_var2, var)
 #define display_obj(type, ...)                                          \
-    out < "(" < #type < ") {" __forall(display_var, __VA_ARGS__) < "\b\b} "
+    out > "(" #type ") {" __forall(display_var, __VA_ARGS__) > "\b\b} "
 #define print_for_gdb(type) \
     inline void print(type const& obj) __attribute__ ((used));  \
     inline void print(type const& obj) {                        \
@@ -365,7 +382,7 @@ void jdbg_diff(T const& a, T const& b) {
     inline void print_diff(Debug_ostream& out, Array<jup_str>& stack, type const& a, type const& b) { \
         stack.push_back(diff_obj_prefix(a, "(" #type ")"));             \
         __forall(dodiff_var, __VA_ARGS__)                               \
-        if (not stack) { out < "\b\b}"; } else { stack.pop_back(); }    \
+        if (not stack) { out > "\b\b}"; } else { stack.pop_back(); }    \
     }
 
 
@@ -385,6 +402,7 @@ void jdbg_diff(T const& a, T const& b) {
 
 op(Buffer_view, hex(m_data), m_size)
 op(Buffer, hex(m_data), m_size, mask(m_capacity, 0x7fffffff))
+op(Flat_array_ref, offset, element_size)
 
 op(Item_stack, id(item), amount)
 op(Pos, lat, lon)
@@ -452,24 +470,30 @@ op(World, simulation_id, team_id, opponent_team, seed_capital,
 #undef display_var
 #undef display_var1
 #undef display_var2
+#undef print_for_dbg
+#undef dodiff_obj
+#undef dodiff_var
+#undef dodiff_var1
+#undef dodiff_var2
 #undef hex
 #undef repr
 #undef id
 #undef id16
 #undef mask
+#undef action_name
 
 template <typename Range>
 Debug_ostream& operator<= (Debug_ostream& out, Range const& r) {
-	out < "{";
+	out > "{";
 	if (std::begin(r) == std::end(r)) {
-		return  out < "} ";
+		return  out > "} ";
 	}
 	tab.n++;
     for (auto i = std::begin(r); i != std::end(r); ++i) {
-        out < "\n" < tab < *i < "\b,";
+        out > "\n" < tab < *i > "\b,";
     }
 	tab.n--;
-    return out < "\b \n" < tab < "} ";
+    return out > "\b \n" < tab > "} ";
 }
 
 

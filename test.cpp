@@ -223,27 +223,30 @@ void Mothership_test2::on_sim_start(u8 agent, Simulation const& simulation, int 
     world().update(simulation, agent, &world_buffer);
 }
 
-void Mothership_test2::pre_request_action() {}
+void Mothership_test2::pre_request_action() {
+    sit_buffer.reset();
+}
 
 void Mothership_test2::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
-    if (perc.simulation_step == 1) {
-        if (agent == 0) {
-            sit_buffer.emplace_back<Situation>(perc, nullptr, &sit_buffer);
-        }
-        sit().update(perc, agent, &sit_buffer);
-        sim_state.init(&world(), &sit_buffer, 0, sit_buffer.size());
-        sim_state.reset();
-        sim_state.fast_forward(10);
-        jdbg_diff(sim_state.orig(), sim_state.sit());
+    if (agent == 0) {
+        sit_buffer.emplace_back<Situation>(perc, nullptr, &sit_buffer);
     }
+    sit().update(perc, agent, &sit_buffer);
 }
 
 void Mothership_test2::on_request_action() {
-    
+    if (sit().simulation_step == 1) {
+        sim_state.init(&world(), &sit_buffer, 0, sit_buffer.size());
+        sim_state.reset();
+        sim_state.fast_forward(10);
+        jdbg < sim_state.orig() ,0;
+        jdbg_diff(sim_state.orig(), sim_state.sit());
+        die(false);
+    }
 }
 
 void Mothership_test2::post_request_action(u8 agent, Buffer* into) {
-
+    into->emplace_back<Action_Abort>();
 }
 
 

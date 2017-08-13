@@ -1,6 +1,7 @@
 
 #include "server.hpp"
 #include "messages.hpp"
+#include "utilities.hpp"
 
 namespace jup {
 
@@ -412,12 +413,15 @@ void Server::run_simulation() {
         }
 
         for (int step = 0; step < max_steps; ++step) {
+            tmp_alloc_reset();
+            
             if (options.use_internal_server and step == max_steps - 1) {
                 proc.write_to_buffer = true;
             }
 
-            if (not options.use_internal_server) {
+            if (not options.use_internal_server or options.massim_quiet) {
                 jout << "Currently in step " << step + 1 << '\n';
+                jout.flush();
             }
         
             step_buffer.reset();
@@ -451,6 +455,7 @@ void Server::run_simulation() {
                     step_buffer.emplace_back<Action_Skip>();
                 } else {
                     mothership->post_request_action(i.id, &step_buffer);
+                    assert(step_buffer.size() != action_offset);
                 }
 
                 // TODO: Fix the allocations
@@ -458,7 +463,7 @@ void Server::run_simulation() {
             
                 auto& answ = step_buffer.emplace_back<Message_Action>(
                     i.last_perception_id, step_buffer.get<Action_Post_job>(action_offset), &step_buffer
-                    );
+                );
                 send_message(i.socket, answ);
             }
         }

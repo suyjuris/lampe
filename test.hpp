@@ -6,6 +6,8 @@
 
 namespace jup {
 
+void test_jdbg_diff();
+    
 struct Mothership_test : Mothership {
 	void init(Graph const* graph) override;
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;

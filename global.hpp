@@ -101,7 +101,7 @@ inline T narrow(R from) {
 }
 
 // Closes the program
-[[noreturn]] void die(); // implemented in system_win32.cpp
+[[noreturn]] void die(bool show_stacktrace = true);
 [[noreturn]] void die(char const* msg, int code = 0);
 
 // Use these facilities for general output. They may redirect into a logfile later on.

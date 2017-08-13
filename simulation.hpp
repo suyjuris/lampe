@@ -1,5 +1,6 @@
 #pragma once
 
+#include "agent.hpp"
 #include "buffer.hpp"
 #include "flat_data.hpp"
 #include "graph.hpp"
@@ -8,7 +9,7 @@
 
 namespace jup {
 
-constexpr int number_of_agents = 16;
+constexpr int number_of_agents = agents_per_team;
 constexpr int planning_max_tasks = 4;
 
 struct Task {
@@ -95,7 +96,6 @@ struct Params {
 };
 
 struct Self_sim: Self {
-    // @Incomplete: Care abount initialization
     u8 task_index;
     u8 task_state;
     u8 task_sleep;
@@ -108,7 +108,7 @@ public:
     bool initialized;
 	u16 simulation_step;
 	s32 team_money;
-	Self_sim selves[number_of_agents];
+	Self_sim selves[number_of_agents] = {};
     Strategy strategy;
 	Flat_array<Entity> entities;
 	Flat_array<Charging_station> charging_stations;

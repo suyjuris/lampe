@@ -8,6 +8,8 @@
 #include "test.hpp"
 #include "utilities.hpp"
 
+#include "debug.hpp"
+
 using namespace jup;
 
 
@@ -183,21 +185,23 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 			int last = begin_file;
 			for (int i = begin_file; i < into->_string_storage.size(); ++i) {
 				if (state == 0 or state == 4) {
-					if (into->_string_storage[i] == ' ' or into->_string_storage[i] == '\t') {
+					if (into->_string_storage[i] == ' ' or into->_string_storage[i] == '\t' or into->_string_storage[i] == '\n') {
 						if (last < i) {
 							into->_string_storage[i] = '\0';
 							args.push_back(&into->_string_storage[last]);
-							// Handle these options differently, because they need two arguments
+                            
+							// Handle these options differently, because they need zero or two arguments
 							if (std::strcmp(args.back(), ADD_AGENT) == 0 and state == 0) {
 								state = 4;
 							} else if (std::strcmp(args.back(), ADD_DUMMY) == 0 and state == 0) {
 								state = 4;
-							} else {
+							} else if (std::strcmp(args.back(), MASSIM_QUIET) == 0) {
+                                state = 0;
+                            } else {
 								state = 1;
 							}
 						}
-						last = i + 1;
-					} else if (into->_string_storage[i] == '\n') {
+
 						last = i + 1;
 					} else if (into->_string_storage[i] == '#') {
 						state = 2;
