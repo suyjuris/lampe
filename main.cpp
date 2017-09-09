@@ -1,5 +1,6 @@
 
 //#include "agent.hpp"
+#include "agent2.hpp"
 #include "sockets.hpp"
 #include "messages.hpp"
 #include "system.hpp"
@@ -105,6 +106,8 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 				into->ship = Server_options::SHIP_TEST;
 			} else if (tmp == LAMPE_SHIP_TEST2) {
 				into->ship = Server_options::SHIP_TEST2;
+			} else if (tmp == LAMPE_SHIP_DUMMY) {
+				into->ship = Server_options::SHIP_DUMMY;
 			} else if (tmp == LAMPE_SHIP_STATS) {
 				into->ship = Server_options::SHIP_STATS;
 			} else if (tmp == LAMPE_SHIP_PLAY) {
@@ -238,13 +241,15 @@ bool parse_cmdline(int argc, c_str const* argv, Server_options* into, bool no_re
 }
 
 int main(int argc, c_str const* argv) {
-	//statistics_main();
+    init_signals();
+    
+    //statistics_main();
 	//return 0;
 
 	Server_options options;
 	// TODO Add offset pointers and make this not unnecessary
 	options._string_storage.reserve_space(4096);
-	options._string_storage.trap_alloc(true);
+    auto guard = options._string_storage.alloc_guard();
 
 	std::ofstream dump_xml;
 
@@ -301,10 +306,27 @@ int main(int argc, c_str const* argv) {
 
         server->register_mothership(&mothership);
         server->run_simulation();
+	} else if (options.ship == Server_options::SHIP_DUMMY) {
+        auto server_wrapper = std::make_unique<Server>(options);
+        server = server_wrapper.get();
+        Mothership_dummy mothership;
+        if (options.dump_xml) {
+            dump_xml = std::ofstream{ options.dump_xml.c_str() };
+            init_messages(&dump_xml);
+        } else {
+            init_messages();
+        }
+
+        if (not server->load_maps()) {
+            return 2;
+        }
+
+        server->register_mothership(&mothership);
+        server->run_simulation();
 	} else if (options.ship == Server_options::SHIP_PLAY) {
 		auto server_wrapper = std::make_unique<Server>(options);
 		server = server_wrapper.get();
-		Mothership_statistics mothership;
+		Mothership_complex mothership;
 		if (options.dump_xml) {
 			dump_xml = std::ofstream{ options.dump_xml.c_str() };
 			init_messages(&dump_xml);

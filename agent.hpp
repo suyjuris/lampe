@@ -2,8 +2,6 @@
 
 namespace jup {
 
-constexpr u8 agents_per_team = 28;
-
 #if 0
 struct Requirement {
     enum Type : u8 {

@@ -229,7 +229,8 @@ Graph_position Graph::pos(Pos const pos) const {
 	}
 }
 
-/*u32 Graph::astar(Graph_position s, Graph_position t, Buffer* into) const {
+#if 0
+u32 Graph::dist_road(Graph_position s, Graph_position t, Buffer* into) const {
 	// unidirectional
 	if (s.edge_pos and t.edge_pos and s.id == t.id) {
 		auto& edge = edges()[s.id];
@@ -244,7 +245,7 @@ Graph_position Graph::pos(Pos const pos) const {
 	auto spos = s.pos(*this);
 	auto estimate = [this, spos](u32 const node) -> u32 {
 		assert(node != node_invalid);
-		float d = dist(spos, nodes()[node].pos) * 1000.f - dist_margin;
+		float d = dist_air(spos, nodes()[node].pos) * 1000.f - dist_margin;
 		if (d < 0) return 0;
 		assert(d <= std::numeric_limits<u32>::max());
 		return (u32)d;
@@ -323,7 +324,8 @@ loop_exit:
 		}
 	}
 	return r;
-}*/
+}
+#endif
 
 u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* into) const {
 	// bidirectional
@@ -741,7 +743,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 			route[o] = tmp;
 		}
 		// write route from midnode to end
-		for (auto cur = midnode; cur != node_invalid; cur = prev[cur]) {
+		for (auto cur = midnode; cur != node_invalid; cur = next[cur]) {
 			into->get<Route_t>(ofs).push_back(cur, into);
 		}
 	}
@@ -838,7 +840,7 @@ void Graph::add_landmark(Graph_position pos) {
 }
 
 u32 Graph::landmark(u32 node) const {
-	auto const& lm = landmark_buffer.get_c<Landmarks_t>();
+	auto const& lm = landmark_buffer.get<Landmarks_t>();
 	// binary search
 	s32 l = 0, r = lm.size() - 1;
 	while (l <= r) {

@@ -1,6 +1,5 @@
 #pragma once
 
-#include "agent.hpp"
 #include "objects.hpp"
 #include "server.hpp"
 

@@ -4,6 +4,8 @@
 
 namespace jup {	
 
+constexpr u8 agents_per_team = 11;
+
 struct Item_stack {
     union {u8 item; u8 id;};
 	u8 amount;
@@ -258,6 +260,7 @@ struct Self: Entity {
 	u8 action_result;
     u8 facility;
 	Flat_array<Item_stack> items;
+    Flat_array<Pos> route;
 };
 
 struct Facility {

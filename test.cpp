@@ -255,10 +255,21 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 	jout << "TIME_P: " << total_time_p / (it_p * 1000000.0) << endl;
 }
 
+void Mothership_dummy::init(Graph* graph) {}
+void Mothership_dummy::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {}
+void Mothership_dummy::pre_request_action() {}
+void Mothership_dummy::pre_request_action(u8 agent, Percept const& perc, int perc_size) {}
+void Mothership_dummy::on_request_action() {}
+void Mothership_dummy::post_request_action(u8 agent, Buffer* into) {
+    into->emplace_back<Action_Skip>();
+}
+
+
 void Mothership_test2::init(Graph* graph_) {
     graph = graph_;
     world_buffer.reset();
     sit_buffer.reset();
+    sit_old_buffer.reset();
 }
 
 void Mothership_test2::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
@@ -269,29 +280,88 @@ void Mothership_test2::on_sim_start(u8 agent, Simulation const& simulation, int 
 }
 
 void Mothership_test2::pre_request_action() {
+    std::swap(sit_buffer, sit_old_buffer);
     sit_buffer.reset();
 }
 
 void Mothership_test2::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
     if (agent == 0) {
-        sit_buffer.emplace_back<Situation>(perc, nullptr, &sit_buffer);
+        Situation* old = sit_old_buffer.size() ? &sit_old_buffer.get<Situation>() : nullptr;
+        sit_buffer.emplace_back<Situation>(perc, old, &sit_buffer);
+
+        // This actually only invalidates the world in the first step, unless step_init changes
+        world().step_init(perc, &world_buffer);
     }
+    
     sit().update(perc, agent, &sit_buffer);
+    world().step_update(perc, agent, &world_buffer);
 }
 
 void Mothership_test2::on_request_action() {
-    if (sit().simulation_step == 1) {
-        sim_state.init(&world(), &sit_buffer, 0, sit_buffer.size());
+    sit_diff.init(&sit_buffer);
+    sit().register_arr(&sit_diff);
+    
+    if (sit().simulation_step > 0) {
+        //jdbg_diff(sit_old(), sit());
+    }
+    
+#if 0
+    if (sit().simulation_step == 0) {
+        {auto const& shop = sit().shops[0];
+        sit().strategy.task(3, 0).task = Task {Task::BUY_ITEM, shop.id, {shop.items[0].id, 2}};}
+        {auto const& shop = sit().shops[1];
+        sit().strategy.task(3, 1).task = Task {Task::BUY_ITEM, shop.id, {shop.items[0].id, 1}};}
+        {auto const& shop = sit().shops[2];
+        sit().strategy.task(3, 2).task = Task {Task::BUY_ITEM, shop.id, {shop.items[0].id, 1}};}
+
+        sim_buffer.reset();
+        sim_buffer.append(sit_buffer);
+        sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
+    }
+#else
+    if (sit().simulation_step == 0) {
+        sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+            Item_stack {get_id_from_string("item10"), 1}, 2296};
+        sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+            Item_stack {get_id_from_string("item11"), 1}, 2296};
+        sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+            Item_stack {get_id_from_string("item14"), 1}, 2296};
+        sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+            Item_stack {get_id_from_string("item9" ), 1}, 2296};
+        
+        sim_buffer.reset();
+        sim_buffer.append(sit_buffer);
+        sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
+        sim_state.fix_errors();
+        die(false);
+        std::memcpy(&sit().strategy, &sim_state.sit().strategy, sizeof(sit().strategy));
+    }
+#endif
+    
+    if (sit().simulation_step > 0) {
         sim_state.reset();
-        sim_state.fast_forward(10);
-        jdbg < sim_state.orig() ,0;
-        jdbg_diff(sim_state.orig(), sim_state.sit());
+        sim_state.fast_forward(sit().simulation_step);
+        for (u8 agent = 0; agent < number_of_agents; ++agent) {
+            sim_state.sit().self(agent).action_type = sit().self(agent).action_type;
+            sim_state.sit().self(agent).action_result = sit().self(agent).action_result;
+            sim_state.sit().self(agent).task_sleep = sit().self(agent).task_sleep;
+            sim_state.sit().self(agent).task_state = sit().self(agent).task_state;
+            sim_state.sit().self(agent).task_index = sit().self(agent).task_index;
+        }
+        std::memcpy(&sim_state.sit().strategy, &sit().strategy, sizeof(sit().strategy));
+        jdbg_diff(sim_state.sit(), sit());
+    }
+
+    if (sit().simulation_step == 20) {
+        //jdbg_diff(sit(), sim_state.sit());
         die(false);
     }
 }
 
 void Mothership_test2::post_request_action(u8 agent, Buffer* into) {
-    into->emplace_back<Action_Abort>();
+    Situation* old = sit().simulation_step == 0 ? &sit() : &sit_old();
+    sit().get_action(world(), *old, agent, into, &sit_diff);
+    sit_diff.apply();
 }
 
 

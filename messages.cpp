@@ -1,6 +1,8 @@
 
 #include "messages.hpp"
 
+#include "debug.hpp"
+
 namespace jup {
 
 /**
@@ -222,7 +224,7 @@ void parse_sim_start(pugi::xml_node xml_obj, Buffer* into) {
 		}
 		item->tools.init(into);
 		for (auto xml_tool : xml_item.children("tool")) {
-			item->tools.push_back(get_id(xml_tool.text().get()), into);
+			item->tools.push_back(get_id(xml_tool.attribute("name").value()), into);
 		}
 		++item;
 	}
@@ -248,7 +250,8 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	{
 		constexpr int s = sizeof(u8);
 		space_needed += s + sizeof(Item_stack) * distance(xml_self.children("items"));
-		space_needed += s + sizeof(Entity) * distance(xml_perc.children("entity"));
+		space_needed += s + sizeof(Pos)        * distance(xml_self.children("route"));
+		space_needed += s + sizeof(Entity)     * distance(xml_perc.children("entity"));
 
 		space_needed += 6 * s
 			+ sizeof(Charging_station) * distance(xml_perc.children("chargingStation"))
@@ -302,12 +305,12 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 	self.facility = get_id(xml_self.attribute("facility").value());
 	narrow(self.charge, xml_self.attribute("charge").as_int());
 	narrow(self.load, xml_self.attribute("load").as_int());
-	self.items.init(into);
     
 	auto xml_action = xml_self.child("action");
     self.action_type = Action::get_id(xml_action.attribute("type").value());
     self.action_result = Action::get_result_id(xml_action.attribute("result").value());
 	
+	self.items.init(into);
 	for (auto xml_item: xml_self.children("items")) {
 		Item_stack item;
 		item.item = get_id(xml_item.attribute("name").value());
@@ -317,6 +320,10 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 			narrow(item.amount, xml_item.attribute("amount").as_int());
 		}
 		self.items.push_back(item, into);
+	}
+	self.route.init(into);
+	for (auto xml_node: xml_self.children("route")) {
+		self.route.push_back(get_pos(xml_node), into);
 	}
 
 	narrow(perc.team_money,
@@ -353,7 +360,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		Shop fac;
 		fac.name = get_id(xml_fac.attribute("name").value());
 		fac.pos = get_pos(xml_fac);
-		fac.restock = get_id(xml_fac.attribute("restock").value());
+		narrow(fac.restock, xml_fac.attribute("restock").as_int());
 		perc.shops.push_back(fac, into);
 	}	
 	Shop* shop = perc.shops.begin();
@@ -549,7 +556,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 struct Additional_block {
     int id;
     int size;
-    char* data() { return (char*)(&size + 1); }
+    char* data() { return (char*)(this + 1); }
     int offset() { return sizeof(Additional_block) + size; }
 };
 
@@ -608,7 +615,7 @@ u8 get_next_message(Socket& sock, Buffer* into) {
 	}
 
     if (dump_xml_output) {
-        *dump_xml_output << "<<< incoming <<<\n" << memory_for_messages.data() << '\n';
+        *dump_xml_output << "<<< incoming " << sock.get_id() << " <<<\n" << memory_for_messages.data() << '\n';
     }
     {
         pugi::xml_document doc;
@@ -657,7 +664,7 @@ void send_xml_message(Socket& sock, pugi::xml_document& doc) {
 	Socket_writer writer {&sock};
 	doc.save(writer, "", pugi::format_default, pugi::encoding_utf8);
     if (dump_xml_output) {
-        *dump_xml_output << ">>> outgoing >>>\n";
+        *dump_xml_output << ">>> outgoing " << sock.get_id() << " >>>\n";
         doc.save(*dump_xml_output);
         *dump_xml_output << '\n';
     }
@@ -696,7 +703,7 @@ void send_message(Socket& sock, Message_Action const& mess) {
 		case Action::GIVE: {
 			cast(Action_Give);
 			next_arg = a.agent;
-			next_arg = a.item.item;
+			next_arg = get_string_from_id(a.item.id).c_str();
 			next_arg = a.item.amount;
 		} break;
 		case Action::STORE:
@@ -705,22 +712,22 @@ void send_message(Socket& sock, Message_Action const& mess) {
 		case Action::BUY:
 		case Action::DUMP: {
 			cast(Action_Store);
-			next_arg = a.item.item;
+			next_arg = get_string_from_id(a.item.id).c_str();
 			next_arg = a.item.amount;
 		} break;
 		case Action::ASSEMBLE:
 		case Action::ASSIST_ASSEMBLE:
 		case Action::GOTO1: {
 			cast(Action_Assemble);
-			next_arg = get_string_from_id(a.item);
+			next_arg = get_string_from_id(a.item).c_str();
 		} break;
 		case Action::DELIVER_JOB: {
 			cast(Action_Deliver_job);
-			next_arg = get_string_from_id(a.job);
+			next_arg = get_string_from_id(a.job).c_str();
 		} break;
 		case Action::BID_FOR_JOB: {
 			cast(Action_Bid_for_job);
-			next_arg = a.job;
+			next_arg = get_string_from_id(a.job).c_str();
 			next_arg = a.bid;
 		} break;
 		case Action::POST_JOB: {

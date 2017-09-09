@@ -94,10 +94,14 @@ inline Debug_ostream& operator< (Debug_ostream& out, Repr r) {
             out.out << "\\t";
         } else if (c == '\0') {
             out.out << "\\0";
+        } else if (c == '"') {
+            out.out << "\\\"";
+        } else if (c == '\\') {
+            out.out << "\\\\";
         } else if (' ' <= c and c <= '~') {
             out.out << c;
         } else {
-            out.printf("\\x%02x", c);
+            out.printf("\\x%02x", (u8)c);
         }
 	}
     out.out << "\" ";
@@ -177,6 +181,11 @@ inline Debug_ostream& operator< (Debug_ostream& out, Flat_array<T, T2, T3> const
 	return out <= fa;
 }
 template <typename T>
+inline Debug_ostream& operator< (Debug_ostream& out, Partial_view_range<T> const& pvr) {
+	return out <= pvr;
+}
+
+template <typename T>
 inline Debug_ostream& operator< (Debug_ostream& out, Array<T> const& arr) {
 	return out <= arr;
 }
@@ -200,14 +209,60 @@ inline Debug_ostream& operator> (Debug_ostream& out, char const* s) {
 	out.out << s;
     return out;
 }
+inline Debug_ostream& operator> (Debug_ostream& out, jup_str s) {
+    out.out.write(s.data(), s.size());
+    return out;
+}
 inline Debug_ostream& operator< (Debug_ostream& out, double d) {
-	return out.printf("%.2elf ", d);
+	return out.printf("%.2lfe ", d);
 }
 inline Debug_ostream& operator< (Debug_ostream& out, float f) {
     return out < (double)f;
 }
 inline Debug_ostream& operator< (Debug_ostream& out, u8 n) {
     return out < (int)n;
+}
+
+
+template <typename T1, typename T2>
+inline void print_nice(Debug_ostream& out, Flat_array_ref_base<T1, T2> const& ref, Buffer const& containing) {
+    out > "(Flat_array_ref_base) {";
+    out > "element_size = " < ref.element_size > "\b, ";
+    out > "offset = " < ref.offset > "\b, ";
+    //out > "first_byte = " < ref.first_byte(containing) > "\b, ";
+    out > "last_byte = " < ref.last_byte(containing) > "\b";
+    out > "} ";
+}
+template <typename T1, typename T2>
+inline Debug_ostream& operator< (Debug_ostream& out, Diff_flat_arrays_base<T1, T2> const& diff) {
+    out > "(Diff_flat_arrays) {";
+    out > "container = " < make_hex(diff.container) > "\b, ";
+    
+    out > "refs = {\n";
+    ++tab.n;
+    for (auto const& ref: diff.refs()) {
+        out < tab;
+        print_nice(out, ref, *diff.container);
+        out > "\b,\n";
+    }
+    --tab.n;
+    out < tab > "} ";
+    
+    out > "diffs = {\n";
+    ++tab.n;
+    for (int i = diff.first(); i; diff.next(&i)) {
+        u8 type = diff.diffs[i];
+        u8 ref  = diff.diffs[i+1];
+        if (type == Diff_flat_arrays::ADD) {
+            Buffer_view data {diff.diffs.data() + i+2, diff.refs()[ref].element_size};
+            out < tab > "type = ADD, ref = ";
+            print_nice(out, diff.refs()[ref], *diff.container);
+            out > "\b, data = " > nice_hex(data) > "\n";
+        }
+    }
+    --tab.n;
+    out < tab > "} ";
+	return out;
 }
 
 inline void consume_prefix_stack(Debug_ostream& out, Array<jup_str>& stack) {
@@ -238,6 +293,7 @@ template <typename T>
 void print_diff_scalar(Debug_ostream& out, Array<jup_str>& stack, T const& a, T const& b) {
     if (a != b) {
         consume_prefix_stack(out, stack);
+        out.out << (s64)a << "->" << (s64)b << '|';
         if (a < b) out.out << '+';
         out.out << (b - a);
     }
@@ -288,6 +344,16 @@ template <typename T>
 auto get_identifier(T const& obj) -> decltype(obj.id) { return obj.id; }
 template <typename T, typename std::enable_if<not Type_has_id<T>::value, int>::type = 0>
 auto get_identifier(T const& obj) { return obj; }
+
+struct Shop_limit_id {
+    u8 shop, item;
+    bool operator== (Shop_limit_id o) {
+        return shop == o.shop and item == o.item;
+    }
+};
+inline auto get_identifier(Shop_limit const& o) {
+    return Shop_limit_id {o.shop, o.item.id};
+}
 
 template <typename T, bool newlined = not std::is_arithmetic
     <std::remove_reference_t<decltype(std::declval<T>()[0])>>::value>
@@ -356,6 +422,10 @@ void print_diff_range(Debug_ostream& out, Array<jup_str>& stack, T const& a, T c
 
 extern Debug_ostream jdbg;
 
+extern bool debug_flag;
+#define JDBG_L (jdbg > __FILE__ ":" < __LINE__ > "\b: ")
+#define JDBG_D if (debug_flag) JDBG_L
+
 template <typename T>
 void jdbg_diff(T const& a, T const& b) {
     Array<jup_str> stack;
@@ -399,6 +469,7 @@ void jdbg_diff(T const& a, T const& b) {
 #define id16(x) (x, Id_string16)
 #define mask(x, m) (x, (apply_mask<decltype(m), m>))
 #define action_name(x) (x, Action::get_name)
+#define action_result_name(x) (x, Action::get_result_name)
 
 op(Buffer_view, hex(m_data), m_size)
 op(Buffer, hex(m_data), m_size, mask(m_capacity, 0x7fffffff))
@@ -410,12 +481,13 @@ op(Item, id(name), volume, consumed, tools)
 op(Role, id(name), speed, battery, load, tools)
 op(Action, type, action_name(type))
 op(Simulation, id, map, team, seed_capital, steps, role, items)
-op(Self, id(name), team, pos, role, charge, load, facility, action_type, action_result)
 op(Entity, id(name), team, pos, role)
+op(Self, id(name), team, pos, role, charge, load, id(facility), action_name(action_type),
+    action_result_name(action_result), items)
 op(Facility, id(name), pos)
 op(Charging_station, id(name), pos, rate)
 op(Dump, id(name), pos)
-op(Shop_item, item, amount, cost)
+op(Shop_item, id(item), amount, cost)
 op(Shop, id(name), pos, restock, items)
 op(Storage_item, item, amount, delivered)
 op(Storage, id(name), pos, total_capacity, used_capacity, items)
@@ -428,17 +500,19 @@ op(Resource_node, id(name), resource, pos)
 op(Percept, deadline, id, simulation_step, team_money, self, entities, charging_stations, dumps,
     shops, storages, workshops, resource_nodes, auctions, jobs, missions, posteds)
 
-op(Task, type, where, item, job_id, crafter_id, state)
+op(Task, type, id(where), item, job_id, crafter.id, cnt)
 op(Task_result, time, err, err_arg)
-op(World, team, seed_capital, steps, items, roles, graph)
+op(Shop_limit, id(shop), item)
+op(Item_cost, id(id), count, sum)
+op(World, team, seed_capital, steps, items, roles, graph, shop_limits, item_costs)
 op(Job_item, id16(job_id), item)
 op(Bookkeeping, delivered)
 op(Task_slot, task, result)
 op(Strategy, m_tasks)
-op(Self_sim, id(name), team, pos, role, charge, load, facility, action_type, action_result,
-    task_index, task_state, task_sleep)
+op(Self_sim, id(name), team, pos, role, charge, load, id(facility), action_name(action_type),
+    action_result_name(action_result), task_index, task_state, task_sleep, items)
 op(Situation, simulation_step, team_money, selves, entities, charging_stations, dumps, shops,
-    storages, workshops, resource_nodes, auctions, jobs, missions, posteds, book)
+    storages, workshops, resource_nodes, auctions, jobs, missions, posteds, strategy, book)
 
 /*op(Requirement, type, dependency, item, where, is_tool, state, id)
 op(Job_execution, job, cost, needed)

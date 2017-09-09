@@ -18,7 +18,9 @@ Buffer_view jup_exec(jup_str cmd) {
     assert_errno(pipe);
 
     tmp_alloc_buffer().reset();
-    tmp_alloc_buffer().reserve_space(256);
+    // It is possible that realloc does not work during program termination. Keeping this buffer big
+    // enough is a workaround.
+    tmp_alloc_buffer().reserve_space(4096); 
     while (not std::feof(pipe)) {
         if (std::fgets(tmp_alloc_buffer().end(), tmp_alloc_buffer().capacity(), pipe)) {
             tmp_alloc_buffer().addsize(std::strlen(tmp_alloc_buffer().end()));
@@ -174,23 +176,47 @@ void _assert_win_fail(c_str expr_str, c_str file, int line) {
     _assert_fail(expr_str, file, line);
 }
 
-void die(c_str msg, int err) {
+extern "C" void handle_signal(int sig) {
+    char const* msg;
+    switch (sig) {
+    case SIGINT:  msg = "Caught interrupt\n";      break;
+    case SIGTERM: msg = "Caught a SIGTERM\n";      break;
+    case SIGILL:  msg = "Caught a SIGILL\n";       break;
+    case SIGSEGV: msg = "Segmentation fault\n";    break;
+    case SIGFPE:  msg = "Arithmetic exception\n";  break;
+    default:      msg = "Unknwon signal caught\n"; break;
+    }
+    die(msg, sig, sig != SIGINT);
+}
+
+void init_signals() {
+    assert(std::signal(SIGINT,  &handle_signal) != SIG_ERR);
+    assert(std::signal(SIGTERM, &handle_signal) != SIG_ERR);
+    assert(std::signal(SIGILL,  &handle_signal) != SIG_ERR);
+    assert(std::signal(SIGSEGV, &handle_signal) != SIG_ERR);
+    assert(std::signal(SIGFPE,  &handle_signal) != SIG_ERR);
+}
+
+void die(c_str msg, int err, bool show_stacktrace) {
+    program_closing = true;
+    
     err_msg(msg, err);
-    die();
+    die(show_stacktrace);
 }
 
 void die(bool show_stacktrace) {
+    program_closing = true;
+
+    std::signal(SIGABRT, SIG_DFL);
+    delete server; // Close the java process
+
     if (show_stacktrace) {
         jerr << "\nStack trace:\n";
         MyStackWalker sw;
         sw.ShowCallstack();
     }
-    
-    // This would be the more proper way, but I can't get mingw to link a recent
-    // version of msvcr without recompiling a lot of stuff.
-    //_set_abort_behavior(0, _WRITE_ABORT_MSG);
-    CloseHandle(GetStdHandle(STD_ERROR_HANDLE));
-    
+
+    stop_abort_from_printing();
     std::abort();
 }
 

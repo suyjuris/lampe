@@ -25,12 +25,13 @@ constexpr auto LAMPE_SHIP_TEST = "test";
 constexpr auto LAMPE_SHIP_TEST2 = "test2";
 constexpr auto LAMPE_SHIP_STATS = "stats";
 constexpr auto LAMPE_SHIP_PLAY = "play";
+constexpr auto LAMPE_SHIP_DUMMY = "dummy";
     
 }
 
 struct Server_options {
     enum Ship: u8 {
-        SHIP_TEST, SHIP_TEST2, SHIP_STATS, SHIP_PLAY
+        SHIP_TEST, SHIP_TEST2, SHIP_STATS, SHIP_PLAY, SHIP_DUMMY
     };
     struct Agent_option {
         Buffer_view name, password;

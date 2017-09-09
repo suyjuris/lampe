@@ -143,9 +143,9 @@ struct Graph {
     std::pair<double, double> get_pos_back(Pos pos) const;
 
     Buffer_view const name() const { return {m_data.data() + name_offset, name_size}; }
-    auto const& nodes() const { return m_data.get_c<Nodes_t>(node_offset); }
-	auto const& edges() const { return m_data.get_c<Edges_t>(edge_offset); }
-	auto const& geometry(u32 ofs) const { return m_data.get_c<Geometry_t>(geometry_offset + geo_size * ofs); }
+    auto const& nodes() const { return m_data.get<Nodes_t>(node_offset); }
+	auto const& edges() const { return m_data.get<Edges_t>(edge_offset); }
+	auto const& geometry(u32 ofs) const { return m_data.get<Geometry_t>(geometry_offset + geo_size * ofs); }
 	auto const* landmark_distf(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 0) * nodes().size(); }
 	auto const* landmark_prev(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 1) * nodes().size(); }
 	auto const* landmark_distb(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 2) * nodes().size(); }

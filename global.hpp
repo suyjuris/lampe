@@ -64,6 +64,10 @@
 
 #endif
 
+#define __JUP_UNIQUE_NAME1(x, y) x##y
+#define __JUP_UNIQUE_NAME2(x, y) __JUP_UNIQUE_NAME1(x, y)
+#define JUP_UNIQUE_NAME(x) __JUP_UNIQUE_NAME2(x, __COUNTER__)
+
 namespace jup {
 
 // Standard integer types
@@ -100,9 +104,12 @@ inline T narrow(R from) {
     return result;
 }
 
+// Initialized the termination procedure. Call at the start of program.
+void init_signals();
+
 // Closes the program
 [[noreturn]] void die(bool show_stacktrace = true);
-[[noreturn]] void die(char const* msg, int code = 0);
+[[noreturn]] void die(char const* msg, int code = 0, bool show_stacktrace = true);
 
 // Use these facilities for general output. They may redirect into a logfile later on.
 extern std::ostream& jout;

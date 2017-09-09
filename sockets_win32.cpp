@@ -2,8 +2,6 @@
 #include "sockets.hpp"
 #include "system.hpp"
 
-// This is the Windows Implementation of the sockets.hpp sockets.
-
 namespace jup {
 
 Socket_context::Socket_context() {

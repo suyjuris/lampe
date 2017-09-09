@@ -1,22 +1,39 @@
 #pragma once
 
 #include "agent.hpp"
+#include "array.hpp"
 #include "buffer.hpp"
 #include "flat_data.hpp"
 #include "graph.hpp"
 #include "objects.hpp"
 #include "statistics.hpp"
+#include "utilities.hpp"
 
 namespace jup {
 
 constexpr int number_of_agents = agents_per_team;
 constexpr int planning_max_tasks = 4;
 
+constexpr u8 craft_max_wait = 15;
+constexpr u8 shop_assume_duration = 30;
+
+constexpr u8 fast_forward_steps = 20;
+constexpr u8 fixer_iterations = 20;
+constexpr u8 max_idle_time = 10;
+
+constexpr float shop_price_factor = 1.75f / 1.25f;
+
 struct Task {
     // This struct must assume a default value on zero-initialization!
-    
+
     enum Type: u8 {
         NONE = 0, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, DELIVER_ITEM, CHARGE, VISIT
+    };
+
+    struct Craft_id_t {
+        u8 id, check;
+        bool operator== (Craft_id_t o) const { return id == o.id and check == o.check; }
+        bool operator!= (Craft_id_t o) const { return not (*this == o); }
     };
     
     u8 type;
@@ -24,21 +41,35 @@ struct Task {
     Item_stack item;
     union {
         u16 job_id;
-        u8 crafter_id;
+        Craft_id_t crafter;
     };
-    u8 state;
+    u8 cnt;
 };
 
 struct Task_result {
     // This struct must assume a default value on zero-initialization!
     
     enum Error_code: u8 {
-        SUCCESS = 0, OUT_OF_BATTERY, CRAFT_NO_ITEM, CRAFT_NO_TOOL, NO_CRAFTER_FOUND,
-        NOT_IN_INVENTORY, NOT_VALID_FOR_JOB, NO_SUCH_JOB
+        SUCCESS = 0,   OUT_OF_BATTERY,   CRAFT_NO_ITEM,    CRAFT_NO_ITEM_SELF,
+        CRAFT_NO_TOOL, NO_CRAFTER_FOUND, NOT_IN_INVENTORY, NOT_VALID_FOR_JOB,
+        NO_SUCH_JOB,   MAX_LOAD,         ASSIST_USELESS
     };
     u8 time;
     u8 err;
     Item_stack err_arg;
+};
+
+struct Shop_limit {
+    u8 shop;
+    Item_stack item;
+};
+
+struct Item_cost {
+    u8 id;
+    u8 count;
+    u16 sum;
+
+    u16 value() const { return sum / count; }
 };
 
 class World {
@@ -46,12 +77,20 @@ public:
     World(Simulation const& s0, Graph* graph, Buffer* containing);
     void update(Simulation const& s, u8 id, Buffer* containing);
 
+    void step_init(Percept const& p0, Buffer* containing);
+    void step_update(Percept const& p, u8 id, Buffer* containing);
+    
 	u8 team;
 	u16 seed_capital;
 	u16 steps;
 	Flat_array<Item> items;
     Flat_array<Role> roles;
     Graph* graph;
+
+    // Inferred knowledge
+    Flat_array<Shop_limit> shop_limits;
+    u16 item_costs_job = 0;
+    Flat_array<Item_cost> item_costs;
 };
 
 struct Job_item {
@@ -70,9 +109,21 @@ struct Bookkeeping {
     void add_item_to_job(u16 job, Item_stack item, Diff_flat_arrays* diff);
 };
 
-union Task_slot {
+// This can be made a union to improve performance and reduce debuggability
+struct Task_slot {
     Task task;
     Task_result result;
+};
+
+struct Partial_viewer_task {
+    using data_type = Task_slot const;
+    using value_type = Task const;
+    static Task const& view(Task_slot const& slot) { return slot.task; }
+};
+struct Partial_viewer_task_result {
+    using data_type = Task_slot const;
+    using value_type = Task_result const;
+    static Task_result const& view(Task_slot const& slot) { return slot.result; }
 };
 
 struct Strategy {
@@ -81,18 +132,34 @@ struct Strategy {
     Task_slot& task(u8 agent, u8 index) {
         assert(0 <= agent and agent < number_of_agents);
         assert(0 <= index and index < planning_max_tasks);
-        return m_tasks[index * number_of_agents + agent];
+        return m_tasks[agent * planning_max_tasks + index];
     }
     Task_slot const& task(u8 agent, u8 index) const {
         assert(0 <= agent and agent < number_of_agents);
         assert(0 <= index and index < planning_max_tasks);
-        return m_tasks[index * number_of_agents + agent];
+        return m_tasks[agent * planning_max_tasks + index];
     }
-};
 
-struct Params {
-    u8 craft_max_wait = 20;
-    u8 shop_assume_duration = 30;
+    Array_view<Task_slot> p_agent(u8 agent) const {
+        return {&m_tasks[agent * planning_max_tasks], planning_max_tasks};
+    }
+    auto p_tasks()   const { return Partial_view_range<Partial_viewer_task>        {m_tasks}; }
+    auto p_results() const { return Partial_view_range<Partial_viewer_task_result> {m_tasks}; }
+
+    void insert_task(u8 agent, u8 index, Task task_) {
+        for (u8 i = planning_max_tasks - 1; i > index; --i) {
+            task(agent, i) = task(agent, i-1);
+        }
+        task(agent, index).task = task_;
+    }
+    Task pop_task(u8 agent, u8 index) {
+        Task result = task(agent, index).task;
+        for (u8 i = index; i + 1 < planning_max_tasks; ++i) {
+            task(agent, i) = task(agent, i + 1);
+        }
+        task(agent, planning_max_tasks - 1).task = Task {};
+        return result;
+    }
 };
 
 struct Self_sim: Self {
@@ -142,7 +209,7 @@ public:
     }
 
     Situation() {}
-    Situation(Percept const& p0, Bookkeeping const* book_old /* = nullptr */, Buffer* containing);
+    Situation(Percept const& p0, Situation const* sit_old /* = nullptr */, Buffer* containing);
     void update(Percept const& p, u8 id, Buffer* containing);
     void register_arr(Diff_flat_arrays* diff);
     
@@ -160,6 +227,7 @@ class Simulation_state {
 public:
     World* world;
     Diff_flat_arrays diff;
+    Rng rng;
     
     int orig_offset, orig_size;
     int sit_offset;
@@ -177,52 +245,45 @@ public:
     auto& orig() { return diff.container->get<Situation>(orig_offset); }
     
     void add_charging(u8 agent, u8 before);
+    void fast_forward();
     void fast_forward(int max_step);
-    void fix_errors(int max_step, int max_iterations = 16);
+
+    void fix_errors();
+    void create_work();
+    float rate();
 
     void remove_task(u8 agent, u8 index);
+    void reduce_load(u8 agent, u8 index);
     void add_item_for(u8 for_agent, u8 for_index, Item_stack for_item, bool for_tool);
-
-    // from https://en.wikipedia.org/wiki/Xorshift
-    constexpr static u64 rand_state_init = 0xd1620b2a7a243d4bull;
-    u64 rand_state = rand_state_init;
-    u64 jrand() {
-        u64 x = rand_state;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
-        rand_state = rand_state;
-        return x * 0x2545f4914f6cdd1dull;
-    }
 };
 
-template <typename T>
-T const& get_by_id(Flat_array<T> const& arr, u8 id) {
+template <typename T, typename Id = decltype(T().id)>
+T const& get_by_id(Flat_array<T> const& arr, Id id) {
     for (T const& i: arr) {
         if (i.id == id) return i;
     }
     assert(false);
 }
-template <typename T>
-T const* find_by_id(Flat_array<T> const& arr, u8 id) {
+template <typename T, typename Id = decltype(T().id)>
+T const* find_by_id(Flat_array<T> const& arr, Id id) {
     for (T const& i: arr) {
         if (i.id == id) return &i;
     }
-    assert(false);
+    return nullptr;
 }
-template <typename T>
-T& get_by_id(Flat_array<T>& arr, u8 id) {
+template <typename T, typename Id = decltype(T().id)>
+T& get_by_id(Flat_array<T>& arr, Id id) {
     for (T& i: arr) {
         if (i.id == id) return i;
     }
     assert(false);
 }
-template <typename T>
-T* find_by_id(Flat_array<T>& arr, u8 id) {
+template <typename T, typename Id = decltype(T().id)>
+T* find_by_id(Flat_array<T>& arr, Id id) {
     for (T& i: arr) {
         if (i.id == id) return &i;
     }
-    assert(false);
+    return nullptr;
 }
 
 struct Agent : Self {

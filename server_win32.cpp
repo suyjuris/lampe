@@ -34,7 +34,7 @@ bool find_file_not_containing(
                 break;
             }
         }
-        if (!flag) break;
+        if (not flag) break;
         
         code = _findnext(handle, &file);
     }
@@ -81,29 +81,6 @@ bool Server_options::check_valid() {
 }
 
 /**
- * Close the java process on termination. This is easier said than done.
- */
-void handle_sigint(int sig) {
-    if (sig == SIGINT) {
-        jerr << "Caught interrupt, cleaning up...\n";
-    } else if (sig == SIGABRT) {
-        jerr << "abort() was called, cleaning up...\n";
-    } else if (sig == SIGTERM) {
-        jerr << "Caught a SIGTERM, cleaning up...\n";
-    } else if (sig == SIGFPE) {
-        jerr << "An arithmetic exception occurred, cleaning up...\n";
-    } else {
-        assert(false);
-    }
-    
-    program_closing = true;
-    std::signal(SIGABRT, SIG_DFL);
-    delete server;
-    stop_abort_from_printing();
-    std::abort();
-}
-
-/**
  * Throw a SIGINT when something is entered into stdin, workaround for mintty's
  * inability to properly Ctrl-C.
  */
@@ -123,13 +100,7 @@ Server::Server(Server_options const& op): options{op} {
         jout << "Connecting to external server, IP: " << options.host_ip.c_str() << ", Port: "
              << options.host_port.c_str() << "\n";
     }
-    
-    // Register signal handling
-    assert(std::signal(SIGINT,  &handle_sigint) != SIG_ERR);
-    assert(std::signal(SIGABRT, &handle_sigint) != SIG_ERR);
-    assert(std::signal(SIGTERM, &handle_sigint) != SIG_ERR);
-    assert(std::signal(SIGFPE,  &handle_sigint) != SIG_ERR);
-        
+            
     if (op.use_internal_server) {
         if (!is_debugged()) {
             stdin_listener = std::thread {&sigint_from_stdin};
@@ -225,6 +196,11 @@ bool Server::load_maps() {
     HANDLE handle = nullptr;
 
     general_buffer.reserve(2048);
+
+    if (not options.massim_loc) {
+        jerr << "Error: Location of MASSim was not specified, but is needed to load maps.\n";
+        return false;
+    }
     
     int init_off = general_buffer.size();
     general_buffer.append(options.massim_loc);
@@ -339,7 +315,7 @@ void Server::run_simulation() {
             if (i.is_dumb) continue;
             if (not server->register_agent(i)) {
                 jerr << "Error: Could not connect agent, exiting.\n";
-                assert(false);
+                die(false);
                 return;
             }
         }
@@ -347,7 +323,7 @@ void Server::run_simulation() {
             if (not i.is_dumb) continue;
             if (not server->register_agent(i)) {
                 jerr << "Error: Could not connect agent, exiting.\n";
-                assert(false);
+                die(false);
                 return;
             }
         }
@@ -361,7 +337,7 @@ void Server::run_simulation() {
         proc.write_to_stdout = not options.massim_quiet;
         proc.send("\n");
     } else {
-        jout << "Connected.\n";
+        jout << "Connected." << endl;
     }
     
     while (true) {
@@ -394,7 +370,7 @@ void Server::run_simulation() {
                 }
                 if (not found) {
                     jerr << "Error: Could not find map " << name.c_str() << '\n';
-                    assert(false);
+                    die(false);
                     return;
                 }
                 jout << "Initialized map " << name.c_str() << '\n';
@@ -438,7 +414,6 @@ void Server::run_simulation() {
                         step = mess.perception.simulation_step;
                     }
                 }
-                
 
                 i.last_perception_id = mess.perception.id;
                 if (not i.is_dumb) {
