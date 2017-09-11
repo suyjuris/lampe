@@ -92,6 +92,21 @@ struct Rng {
      * Return an exponentially distributed value, with parameter lambda = perbyte/256. Slow.
      */
     u8 gen_exp(u8 perbyte);
+
+    template <typename T>
+    T const* choose_weighted(T const* ptr, int count) {
+        if (count == 0) return nullptr;
+        u64 sum = 0;
+        for (auto const& i: Array_view<T> {ptr, count}) {
+            sum += i.rating;
+        }
+        u64 x = gen_uni(sum);
+        for (auto const& i: Array_view<T> {ptr, count}) {
+            if (x < i.rating) return &i;
+            x -= i.rating;
+        }
+        assert(false);
+    }
 };
 
 template <typename Partial_viewer>

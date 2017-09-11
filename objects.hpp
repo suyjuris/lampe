@@ -59,7 +59,7 @@ struct Action {
 	    FAILED_UNKNOWN_JOB, FAILED_UNKNOWN_FACILITY, FAILED_NO_ROUTE,
 	    FAILED_ITEM_AMOUNT, FAILED_CAPACITY, FAILED_WRONG_FACILITY,
 	    FAILED_TOOLS, FAILED_ITEM_TYPE, FAILED_JOB_STATUS, FAILED_JOB_TYPE,
-		FAILED_COUNTERPART, FAILED_WRONG_PARAM, FAILED,
+		FAILED_COUNTERPART, FAILED_WRONG_PARAM, FAILED_FACILITY_STATE, FAILED,
         SUCCESSFUL_PARTIAL, USELESS
 	};
 	static constexpr char const* action_result_names[] = {
@@ -68,8 +68,8 @@ struct Action {
 	    "failed_no_route", "failed_item_amount", "failed_capacity",
 	    "failed_wrong_facility", "failed_tools", "failed_item_type",
 	    "failed_job_status", "failed_job_type", "failed_counterpart",
-	    "failed_wrong_param", "failed", "successful_partial",
-	    "useless"
+	    "failed_wrong_param", "failed_facility_state", "failed",
+        "successful_partial", "useless"
 	};
 	
 	static u8 get_id(char const* str) {
@@ -122,13 +122,13 @@ struct Action_Goto0: Action {
 		Action{GOTO0} {}
 };
 
-struct Action_Goto1 : Action {
+struct Action_Goto1: Action {
 	Action_Goto1(u8 fac):
 		Action{GOTO1}, fac{fac} {}
 	u8 fac;
 };
 
-struct Action_Goto2 : Action {
+struct Action_Goto2: Action {
 	Action_Goto2(Pos pos) :
 		Action{GOTO2}, pos{pos} {}
 	Action_Goto2(u16 lat, u16 lon):
@@ -177,7 +177,7 @@ struct Action_Assist_assemble: Action {
 	u8 assembler;
 };
 
-struct Action_Buy : Action {
+struct Action_Buy: Action {
 	Action_Buy(Item_stack item):
 		Action{BUY}, item{item} {}
 	Item_stack item;
@@ -206,14 +206,14 @@ struct Action_Post_job: Action {
 	Flat_array<Item_stack> items;
 };
 
-struct Action_Dump : Action {
+struct Action_Dump: Action {
 	Action_Dump(Item_stack item):
 		Action{DUMP}, item{item} {}
 	Item_stack item;
 };
 
-struct Action_Charge : Action {
-	Action_Charge() : Action{CHARGE} {}
+struct Action_Charge: Action {
+	Action_Charge(): Action{CHARGE} {}
 };
 
 struct Action_Recharge: Action {
@@ -268,36 +268,40 @@ struct Facility {
 	Pos pos;
 };
 
-struct Charging_station : Facility {
+struct Charging_station: Facility {
 	u8 rate;
 };
 
-struct Dump : Facility {
+struct Dump: Facility {
 };
 
-struct Shop_item : Item_stack {
+struct Shop_item: Item_stack {
 	u16 cost;
 };
 
-struct Shop : Facility {
+struct Shop: Facility {
 	u8 restock;
 	Flat_array<Shop_item> items;
 };
 
-struct Storage_item : Item_stack {
+struct Storage_item: Item_stack {
 	u8 delivered;
 };
 
-struct Storage : Facility {
+struct Storage: Facility {
 	u16 total_capacity;
 	u16 used_capacity;
 	Flat_array<Storage_item> items;
 };
 
-struct Workshop : Facility {
+struct Workshop: Facility {
 };
 
 struct Job {
+    enum Type: u8 {
+        NONE, JOB, AUCTION, MISSION, POSTED
+    };
+    
 	u16 id;
 	u8 storage;
 	u16 start;
@@ -312,13 +316,11 @@ struct Auction: Job {
 	u32 max_bid;
 };
 
-struct Mission: Auction {
-};
+using Mission = Auction;
 
-struct Posted: Job {
-};
+struct Posted: Job { };
 
-struct Resource_node : Facility {
+struct Resource_node: Facility {
 	u8 resource;
 };
 

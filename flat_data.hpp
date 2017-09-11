@@ -450,10 +450,13 @@ struct Flat_array_ref_base {
     
     Offset_t offset = 0;
     u8 element_size = 0;
+    char const* name = nullptr;
 
     template <typename T>
-    Flat_array_ref_base(Flat_array<T, Offset_t, Size_t> const& arr, Buffer const& containing):
-        element_size{sizeof(T)}
+    Flat_array_ref_base(Flat_array<T, Offset_t, Size_t> const& arr,
+            char const* name, Buffer const& containing):
+        element_size{sizeof(T)},
+        name{name}
     {
         narrow(offset, (char*)&arr - containing.data()); 
         assert(containing.inside(&arr));
@@ -513,9 +516,9 @@ struct Diff_flat_arrays_base {
     }
 
     template <typename Flat_array_t>
-    void register_arr(Flat_array_t const& arr) {
+    void register_arr(Flat_array_t const& arr, char const* name = nullptr) {
         assert(container);
-        refs().push_back(Flat_array_ref {arr, *container}, &diffs);
+        refs().push_back(Flat_array_ref {arr, name, *container}, &diffs);
         std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
             return a.last_byte(*container) < b.last_byte(*container);
         });
@@ -550,7 +553,7 @@ struct Diff_flat_arrays_base {
     template <typename Flat_array_t>
     void add(Flat_array_t const& arr, typename Flat_array_t::Type const& i) {
         assert(container);
-        int index = refs().index(Flat_array_ref {arr, *container});
+        int index = refs().index(Flat_array_ref {arr, nullptr, *container});
         assert(index >= 0 /* array was not registered */);
         diffs.emplace_back<u8>(ADD);
         diffs.emplace_back<u8>((u8) index);
@@ -561,7 +564,7 @@ struct Diff_flat_arrays_base {
     template <typename Flat_array_t>
     void remove(Flat_array_t const& arr, int i) {
         assert(container);
-        int index = refs().index(Flat_array_ref {arr, *container});
+        int index = refs().index(Flat_array_ref {arr, nullptr, *container});
         assert(index >= 0 /* array was not registered */);
         diffs.emplace_back<u8>(REMOVE);
         diffs.emplace_back<u8>((u8) index);
@@ -588,15 +591,33 @@ struct Diff_flat_arrays_base {
             int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
             int remove_off = type == REMOVE ? - (refs()[ref].ref(*container).size()-1
                 - diffs[i+2] ) * refs()[ref].element_size : 0;
-            for (int j = 0; j < refs().size(); ++j) {
-                if (j == ref) continue;
-                if (refs()[j].first_byte(*container) < refs()[ref].last_byte(*container)
-                    and refs()[j].last_byte(*container) > refs()[ref].last_byte(*container)) {
-                    refs()[j].ref(*container).start += adjust;
-                }
-            }
+            
             container->reserve_space(type == ADD ? adjust : 0);
             char* end_ptr = refs()[ref].ref(*container)._end_sized(refs()[ref].element_size) + remove_off;
+            
+            for (int j = 0; j < refs().size(); ++j) {
+                if (j == ref) continue;
+                if (type == ADD) {
+                    if (refs()[j].first_byte(*container) < end_ptr - container->begin()
+                            and refs()[j].last_byte(*container) > end_ptr - container->begin()) {
+                        refs()[j].ref(*container).start += adjust;
+                    }
+                } else if (type == REMOVE) {
+                    if (refs()[j].first_byte(*container) < end_ptr + adjust - container->begin()
+                            and refs()[j].last_byte(*container) > end_ptr - container->begin()) {
+                        refs()[j].ref(*container).start += adjust;
+                    } else if (refs()[j].first_byte(*container) > end_ptr + adjust - container->begin()
+                            and refs()[j].first_byte(*container) < end_ptr - container->begin()) {
+                        for (int k = j; k + 1 < refs().size(); ++k) {
+                            refs()[k] = refs()[k+1];
+                        }
+                        refs().m_size() -= 1;
+                        --j;
+                    }
+                } else {
+                    assert(false);
+                }
+            }
             std::memmove(end_ptr + adjust, end_ptr, container->end() - end_ptr);
             container->addsize(adjust);
             

@@ -333,7 +333,6 @@ void Mothership_test2::on_request_action() {
         sim_buffer.append(sit_buffer);
         sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
         sim_state.fix_errors();
-        die(false);
         std::memcpy(&sit().strategy, &sim_state.sit().strategy, sizeof(sit().strategy));
     }
 #endif
@@ -341,6 +340,8 @@ void Mothership_test2::on_request_action() {
     if (sit().simulation_step > 0) {
         sim_state.reset();
         sim_state.fast_forward(sit().simulation_step);
+        
+        // These are just to make the output easier on the eyes
         for (u8 agent = 0; agent < number_of_agents; ++agent) {
             sim_state.sit().self(agent).action_type = sit().self(agent).action_type;
             sim_state.sit().self(agent).action_result = sit().self(agent).action_result;
@@ -349,6 +350,7 @@ void Mothership_test2::on_request_action() {
             sim_state.sit().self(agent).task_index = sit().self(agent).task_index;
         }
         std::memcpy(&sim_state.sit().strategy, &sit().strategy, sizeof(sit().strategy));
+
         jdbg_diff(sim_state.sit(), sit());
     }
 

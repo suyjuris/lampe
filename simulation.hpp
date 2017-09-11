@@ -17,11 +17,28 @@ constexpr int planning_max_tasks = 4;
 constexpr u8 craft_max_wait = 15;
 constexpr u8 shop_assume_duration = 30;
 
-constexpr u8 fast_forward_steps = 20;
+constexpr u8 fast_forward_steps = 80;
 constexpr u8 fixer_iterations = 20;
 constexpr u8 max_idle_time = 10;
 
-constexpr float shop_price_factor = 1.75f / 1.25f;
+constexpr float price_shop_factor = 1.25f / 1.25f;
+constexpr u16   price_craft_val   = 125;
+
+constexpr u8    rate_additem_involved  = 30;
+constexpr u8    rate_additem_carryall  = 5;
+constexpr float rate_additem_idlescale = 0.125f;
+constexpr u8    rate_additem_inventory = 90;
+constexpr u8    rate_additem_shop      = 10;
+constexpr u8    rate_additem_crafting  = 0;
+constexpr u8    rate_additem_fatten    = 30;
+
+constexpr u8    rate_job_started = 90;
+constexpr float rate_job_cost    = 1.1f;
+constexpr float rate_job_havefac = 0.5f;
+constexpr float rate_job_profit  = 0.05f;
+
+constexpr u8 fixer_it_limit = 10;
+
 
 struct Task {
     // This struct must assume a default value on zero-initialization!
@@ -44,6 +61,7 @@ struct Task {
         Craft_id_t crafter;
     };
     u8 cnt;
+    u8 fixer_it;
 };
 
 struct Task_result {
@@ -52,11 +70,14 @@ struct Task_result {
     enum Error_code: u8 {
         SUCCESS = 0,   OUT_OF_BATTERY,   CRAFT_NO_ITEM,    CRAFT_NO_ITEM_SELF,
         CRAFT_NO_TOOL, NO_CRAFTER_FOUND, NOT_IN_INVENTORY, NOT_VALID_FOR_JOB,
-        NO_SUCH_JOB,   MAX_LOAD,         ASSIST_USELESS
+        NO_SUCH_JOB,   MAX_LOAD,         ASSIST_USELESS,   DELIVERY_USELESS,
+        NOT_IN_SHOP
     };
     u8 time;
     u8 err;
     Item_stack err_arg;
+    u8 left;
+    u8 load;
 };
 
 struct Shop_limit {
@@ -68,6 +89,7 @@ struct Item_cost {
     u8 id;
     u8 count;
     u16 sum;
+    u8 craftval;
 
     u16 value() const { return sum / count; }
 };
@@ -172,6 +194,7 @@ struct Self_sim: Self {
 // of all agents, as well as the current strategy
 class Situation {
 public:
+    // Keep in mind to add any arrays here into Situation::register_arr as well
     bool initialized;
 	u16 simulation_step;
 	s32 team_money;
@@ -195,25 +218,34 @@ public:
         assert(0 <= agent and agent < number_of_agents);
         return selves[agent];
     }
-    auto& task(u8 agent) {
-        assert(0 <= agent and agent < number_of_agents);
-        return strategy.task(agent, selves[agent].task_index);
-    }
     auto const& self(u8 agent) const {
         assert(0 <= agent and agent < number_of_agents);
         return selves[agent];
     }
+    auto& task(u8 agent) {
+        assert(0 <= agent and agent < number_of_agents);
+        return strategy.task(agent, selves[agent].task_index);
+    }
     auto const& task(u8 agent) const {
         assert(0 <= agent and agent < number_of_agents);
         return strategy.task(agent, selves[agent].task_index);
+    }
+    u8 last_time(u8 agent) const {
+        if (selves[agent].task_index == 0) {
+            return 0;
+        } else {
+            return strategy.task(agent, selves[agent].task_index - 1).result.time;
+        }
     }
 
     Situation() {}
     Situation(Percept const& p0, Situation const* sit_old /* = nullptr */, Buffer* containing);
     void update(Percept const& p, u8 id, Buffer* containing);
     void register_arr(Diff_flat_arrays* diff);
-    
-    void get_action(World const& world, Situation const& old, u8 agent, Buffer* into, Diff_flat_arrays* diff);
+
+    void flush_old(World const& world, Situation const& old, Diff_flat_arrays* diff);
+    void get_action(World const& world, Situation const& old, u8 agent,
+        Buffer* into /*= nullptr*/, Diff_flat_arrays* diff);
 
     void agent_goto_nl(World const& world, u8 agent, u8 target_id);
     void task_update(World const& world, u8 agent, Diff_flat_arrays* diff);
@@ -221,6 +253,9 @@ public:
     bool agent_goto(u8 where, u8 agent, Buffer* into);
 
     Pos find_pos(u8 id) const;
+    
+    Job* find_by_id_job(u16 id, u8* type = nullptr);
+    Job& get_by_id_job(u16 id, u8* type = nullptr);
 };
 
 class Simulation_state {
@@ -254,6 +289,8 @@ public:
 
     void remove_task(u8 agent, u8 index);
     void reduce_load(u8 agent, u8 index);
+    void reduce_buy(u8 agent, u8 index, Item_stack arg);
+    void reduce_assist(u8 agent, u8 index, Item_stack arg);
     void add_item_for(u8 for_agent, u8 for_index, Item_stack for_item, bool for_tool);
 };
 
@@ -285,41 +322,5 @@ T* find_by_id(Flat_array<T>& arr, Id id) {
     }
     return nullptr;
 }
-
-struct Agent : Self {
-	u8 name;
-	u8 role_index;
-	u8 team;
-};
-
-class Internal_simulation {
-	struct Simulation_information {
-		Flat_array<Item> items;
-		Flat_array<Role> roles;
-		Flat_array<Charging_station> charging_stations;
-		Flat_array<Dump> dump_locations;
-		Flat_array<Shop> shops;
-		Flat_array<Storage> storages; // items will stay uninitialized
-		Flat_array<Workshop> workshops;
-		Flat_array<Auction> auction_jobs;
-		Flat_array<Job> priced_jobs;
-		Flat_array<Agent> agents;
-		u16 seed_capital;
-		u16 steps;
-	};
-	u8 agent_count;
-	u16 step;
-
-	Buffer sim_buffer;
-	Simulation_information& d() { return sim_buffer.get<Simulation_information>(); }
-
-
-	Internal_simulation(Game_statistic const& stat);
-
-	void on_sim_start(Buffer *into); // provide Simulations
-	void pre_request_action(Buffer *into); // provide Perceptions
-	void post_reqest_action(Flat_list<Action> actions);
-
-};
 
 } /* end of namespace jup */

@@ -214,7 +214,7 @@ inline Debug_ostream& operator> (Debug_ostream& out, jup_str s) {
     return out;
 }
 inline Debug_ostream& operator< (Debug_ostream& out, double d) {
-	return out.printf("%.2lfe ", d);
+	return out.printf("%.2e ", d);
 }
 inline Debug_ostream& operator< (Debug_ostream& out, float f) {
     return out < (double)f;
@@ -231,6 +231,8 @@ inline void print_nice(Debug_ostream& out, Flat_array_ref_base<T1, T2> const& re
     out > "offset = " < ref.offset > "\b, ";
     //out > "first_byte = " < ref.first_byte(containing) > "\b, ";
     out > "last_byte = " < ref.last_byte(containing) > "\b";
+    if (ref.name)
+        out > ", name = " > ref.name;
     out > "} ";
 }
 template <typename T1, typename T2>
@@ -258,6 +260,12 @@ inline Debug_ostream& operator< (Debug_ostream& out, Diff_flat_arrays_base<T1, T
             out < tab > "type = ADD, ref = ";
             print_nice(out, diff.refs()[ref], *diff.container);
             out > "\b, data = " > nice_hex(data) > "\n";
+        } else if (type == Diff_flat_arrays::REMOVE) {
+            out < tab > "type = REMOVE, ref = ";
+            print_nice(out, diff.refs()[ref], *diff.container);
+            out > "\b, index = " < diff.diffs[i+2] > "\n";
+        } else {
+            assert(false);
         }
     }
     --tab.n;
@@ -494,13 +502,13 @@ op(Storage, id(name), pos, total_capacity, used_capacity, items)
 op(Workshop, id(name), pos)
 op(Job, id16(id), storage, start, end, required, reward)
 op(Auction, id16(id), storage, start, end, required, reward, fine, max_bid)
-op(Mission, id16(id), storage, start, end, required, reward, fine, max_bid)
+//op(Mission, id16(id), storage, start, end, required, reward, fine, max_bid)
 op(Posted, id16(id), storage, start, end, required, reward)
 op(Resource_node, id(name), resource, pos)
 op(Percept, deadline, id, simulation_step, team_money, self, entities, charging_stations, dumps,
     shops, storages, workshops, resource_nodes, auctions, jobs, missions, posteds)
 
-op(Task, type, id(where), item, job_id, crafter.id, cnt)
+op(Task, type, id(where), item, job_id, crafter.id, cnt, fixer_it)
 op(Task_result, time, err, err_arg)
 op(Shop_limit, id(shop), item)
 op(Item_cost, id(id), count, sum)
