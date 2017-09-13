@@ -1397,8 +1397,13 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
             tail_index += s.task(agent, i).task.type != Task::NONE;
         }
         // If there is an error, insert the task in front, to prevent deadlocks
-        if (tail_index and sit().strategy.task(agent, tail_index - 1).result.err) {
-            --tail_index;
+        auto& d = sit().self(agent);
+        if (d.task_index and (sit().strategy.task(agent, d.task_index - 1).result.err
+            or sit().last_time(agent) == fast_forward_steps))
+        {
+            tail_index = d.task_index - 1;
+        } else {
+            assert(tail_index == d.task_index);
         }
         
         if (is_deliver) {
@@ -1523,12 +1528,15 @@ void Strategy::insert_task(u8 agent, u8 index, Task task_) {
 }
 
 void Simulation_state::fix_errors() {
+    // For debugging purposes
+    u64 state = rng.rand_state;
+    
     for (int it = 0; it < fixer_iterations; ++it) {
         reset();
         fast_forward();
 
-        //JDBG_D < sit().strategy.p_results() ,1;
-        JDBG_D < sit().strategy.p_tasks() ,0;
+        JDBG_D < sit().strategy.p_results() ,1;
+        JDBG_D < orig().strategy.p_tasks() ,0;
 
         u8 best_agent = number_of_agents;
         int value = std::numeric_limits<int>::max();
@@ -1592,7 +1600,19 @@ void Simulation_state::fix_errors() {
             
             JDBG_D < it < agent < index < r ,0;
         } else {
-            jdbg < "NOERR" < it ,0;
+            // Detect deadlock
+            int count = 0;
+            for (u8 agent = 0; agent < number_of_agents; ++agent) {
+                count += sit().last_time(agent) == fast_forward_steps;
+            }
+            if (count >= 2) {
+                JDBG_L < "We seem to have a deadlock. Oh my!" < count < orig().simulation_step < state ,0;
+                JDBG_L < sit().strategy.p_results() ,1;
+                JDBG_L < orig().strategy.p_tasks() ,0;
+                die(false);
+            }
+            
+            //jdbg < "NOERR" < it ,0;
             break;
         }
     }
@@ -1773,6 +1793,9 @@ void Simulation_state::optimize() {
 }
 
 float Simulation_state::rate() {
+    reset();
+    fast_forward();
+        
     float rating = sit().team_money;
 
     // Count all items inside the agents inventory

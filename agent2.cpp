@@ -10,6 +10,9 @@ void Mothership_complex::init(Graph* graph_) {
     world_buffer.reset();
     sit_buffer.reset();
     sit_old_buffer.reset();
+    strategies.reset();
+    strategies.reserve(max_strategy_count);
+    strategies_guard = strategies.m_data.alloc_guard();
 }
 
 void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {
@@ -52,17 +55,60 @@ void Mothership_complex::on_request_action() {
     sim_buffer.append(sit_buffer);
     sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
 
-    //debug_flag = true;
-    
-    sim_state.reset();
-    sim_state.fast_forward();
-    sim_state.create_work();
-    sim_state.fix_errors();
-    sim_state.optimize();
-    std::memcpy(&sit().strategy, &sim_state.orig().strategy, sizeof(sit().strategy));
+    strategies.reset();
+    strategies.emplace_back();
+    std::memcpy(&strategies[0].strategy, &sim_state.orig().strategy, sizeof(Strategy));
+    strategies[0].rating = sim_state.rate();
+    strategies[0].rating_sum = strategies[0].rating;
+    strategies[0].visited = 1;
 
-    JDBG_L < sim_state.sit().strategy.p_results() ,1;
-    JDBG_L < sim_state.orig().strategy.p_tasks() ,0;
+    while (strategies.size() < max_strategy_count) {
+        // Choose the strategy to explore
+        int best_arg = 0;
+        float best_value = 0;
+        for (int i_it = 0; i_it < strategies.size(); ++i_it) {
+            auto const& i = strategies[i_it];
+            float value = i.rating_sum / i.visited / search_rating_max;
+            value += search_exploration * std::sqrt(2*std::log(strategies.size()) / i.visited);
+            if (value > best_value) {
+                best_arg = i_it;
+                best_value = value;
+            }
+        }
+
+        // Explore
+        std::memcpy(&sim_state.orig().strategy, &strategies[best_arg].strategy, sizeof(Strategy));
+        sim_state.reset();
+        sim_state.fast_forward();
+        sim_state.create_work();
+        sim_state.fix_errors();
+        sim_state.optimize();
+
+        int index = strategies.size();
+        strategies.emplace_back();
+        std::memcpy(&strategies[index].strategy, &sim_state.orig().strategy, sizeof(Strategy));
+        strategies[index].rating = sim_state.rate();
+        strategies[index].rating_sum = strategies[index].rating;
+        strategies[index].visited = 1;
+        
+        strategies[best_arg].rating_sum += strategies[index].rating;
+        strategies[best_arg].visited += 1;
+    }
+
+    // Choose the best strategy
+    int best_arg = 0;
+    float best_value = 0;
+    for (int i_it = 0; i_it < strategies.size(); ++i_it) {
+        auto const& i = strategies[i_it];
+        if (i.rating > best_value) {
+            best_arg = i_it;
+            best_value = i.rating;
+        }
+    }
+    
+    std::memcpy(&sit().strategy, &strategies[best_arg].strategy, sizeof(Strategy));
+
+    JDBG_L < sit().strategy.p_tasks() ,0;
     
     /*if (sit().simulation_step == 30) {
         die(false);

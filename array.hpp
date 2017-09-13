@@ -54,9 +54,9 @@ public:
 	T& emplace(int index = 0, Args&&... args) {
         return m_data.emplace<T, Args...>(index * sizeof(T), std::forward<Args>(args)...);
 	}
-	template <typename T, typename... Args>
+	template <typename... Args>
 	T& emplace_back(Args&&... args) {
-		return emplace<T>(size(), std::forward<Args>(args)...);
+		return emplace(size(), std::forward<Args>(args)...);
 	}
 
     /**
