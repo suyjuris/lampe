@@ -7,6 +7,8 @@
 
 namespace jup {
 
+constexpr int max_strategy_count = 32;
+
 struct Mothership_complex : Mothership {    
 	void init(Graph* graph) override;
 	void on_sim_start(u8 agent, Simulation const& simulation, int sim_size) override;
@@ -26,7 +28,6 @@ struct Mothership_complex : Mothership {
     Simulation_state sim_state;
     Diff_flat_arrays sit_diff;
     Graph* graph;
-
 };
 
 

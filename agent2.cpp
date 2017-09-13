@@ -38,6 +38,8 @@ void Mothership_complex::pre_request_action(u8 agent, Percept const& perc, int p
 }
 
 void Mothership_complex::on_request_action() {
+    world().step_post(&world_buffer);
+    
     sit_diff.init(&sit_buffer);
     sit().register_arr(&sit_diff);
     
@@ -49,16 +51,34 @@ void Mothership_complex::on_request_action() {
     sim_buffer.reset();
     sim_buffer.append(sit_buffer);
     sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
+
+    //debug_flag = true;
     
     sim_state.reset();
     sim_state.fast_forward();
-    
     sim_state.create_work();
     sim_state.fix_errors();
-    std::memcpy(&sit().strategy, &sim_state.orig().strategy, sizeof(sit().strategy));    
+    sim_state.optimize();
+    std::memcpy(&sit().strategy, &sim_state.orig().strategy, sizeof(sit().strategy));
 
     JDBG_L < sim_state.sit().strategy.p_results() ,1;
     JDBG_L < sim_state.orig().strategy.p_tasks() ,0;
+    
+    /*if (sit().simulation_step == 30) {
+        die(false);
+        }*/
+
+    
+    /*if (auto item = find_by_id(sim_state.orig().self(2).items, get_id_from_string("tool1"))) {
+        if (item->amount > 0) {
+            for (u8 i = 0; i < planning_max_tasks; ++i) {
+                auto const& t = sim_state.orig().strategy.task(2, i).task;
+                if (t.type == Task::BUY_ITEM and t.item.id == get_id_from_string("tool1")) {
+                    die(false);
+                }
+            }
+        }
+        }*/
     
         /*} else {
         sim_state.reset();

@@ -475,8 +475,7 @@ struct Flat_array_ref_base {
         return offset;
     }
     Offset_t last_byte(Buffer const& container) const {
-        return offset + ref(container).start + sizeof(Size_t)
-            + ref(container).size() * element_size;
+        return (char*)ref(container)._end_sized(element_size) - container.begin();
     }
 
     bool operator== (Flat_array_ref_base<_Offset_t, _Size_t> const& other) const {
@@ -581,6 +580,17 @@ struct Diff_flat_arrays_base {
     Flat_array<Flat_array_ref>&       refs()       { return diffs.get<Flat_array<Flat_array_ref>>(); }
 
     void apply() {
+        for (auto& i: refs()) {
+            assert(container->inside(container->begin() + i.first_byte(*container), sizeof(Offset_t)));
+            Offset_t off = container->get<Offset_t>(i.first_byte(*container));
+            assert(off != 0);
+            if (not container->inside(container->begin() + off, sizeof(Size_t))) {
+                jerr << i.name << ' ' << off << '\n';
+            }
+            assert(container->inside(container->begin() + off, sizeof(Size_t)));
+            assert(container->inside(container->begin() + i.last_byte(*container) - 1));
+        }
+        
         assert(container);
         if (refs().size()) {
             assert(refs().back().last_byte(*container) == container->size());
@@ -595,12 +605,24 @@ struct Diff_flat_arrays_base {
             container->reserve_space(type == ADD ? adjust : 0);
             char* end_ptr = refs()[ref].ref(*container)._end_sized(refs()[ref].element_size) + remove_off;
             
+            if (type == REMOVE) {
+                int k = i;
+                for (next(&k); k; next(&k)) {
+                    if (diffs[k] == REMOVE and diffs[k+1] == ref) {
+                        assert(diffs[k+2] != diffs[i+2]);
+                        diffs[k+2] -= diffs[k+2] > diffs[i+2];
+                    }
+                }
+                assert(diffs[i+2] < refs()[ref].ref(*container).size());
+            }
             for (int j = 0; j < refs().size(); ++j) {
                 if (j == ref) continue;
                 if (type == ADD) {
                     if (refs()[j].first_byte(*container) < end_ptr - container->begin()
                             and refs()[j].last_byte(*container) > end_ptr - container->begin()) {
                         refs()[j].ref(*container).start += adjust;
+                    } else if (refs()[j].first_byte(*container) >= end_ptr - container->begin()) {
+                        refs()[j].offset += adjust;
                     }
                 } else if (type == REMOVE) {
                     if (refs()[j].first_byte(*container) < end_ptr + adjust - container->begin()
@@ -611,21 +633,33 @@ struct Diff_flat_arrays_base {
                         for (int k = j; k + 1 < refs().size(); ++k) {
                             refs()[k] = refs()[k+1];
                         }
+                        for (int k = i; k; next(&k)) {
+                            diffs[k+1] -= diffs[k+1] >= j;
+                        }
+                        assert(refs().m_size());
                         refs().m_size() -= 1;
                         --j;
+                    } else if (refs()[j].first_byte(*container) >= end_ptr - container->begin()) {
+                        refs()[j].offset += adjust;
                     }
                 } else {
                     assert(false);
                 }
             }
+            assert(container->inside(end_ptr, container->end() - end_ptr)
+                and container->valid(end_ptr + adjust, container->end() - end_ptr));
             std::memmove(end_ptr + adjust, end_ptr, container->end() - end_ptr);
+            char* prevend = container->end();
             container->addsize(adjust);
+            //jerr << (void*)container->begin() << ' ' << (void*)container->end() << ' ' << (void*)(end_ptr + adjust) << ' ' << (void*)(adjust + prevend) << '\n';
+            assert(container->inside(end_ptr + adjust, prevend - end_ptr));
             
             if (type == ADD) {
                 // end_ptr still valid because of preallocation
                 std::memcpy(end_ptr, diffs.data() + i+2, refs()[ref].element_size);
                 refs()[ref].ref(*container).m_size() += 1;
             } else if (type == REMOVE) {
+                assert(refs()[ref].ref(*container).m_size());
                 refs()[ref].ref(*container).m_size() -= 1;
             } else {
                 assert(false);

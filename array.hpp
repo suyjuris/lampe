@@ -59,6 +59,17 @@ public:
 		return emplace<T>(size(), std::forward<Args>(args)...);
 	}
 
+    /**
+	 * Returns the smallest index containing an equal object or -1 of no such
+	 * object exists.
+	 */
+	int index(T const& obj) const {
+        for (int i = 0; i < size(); ++i) {
+            if ((*this)[i] == obj) return i;
+        }
+        return -1;
+	}
+    
     void push_back(T const& obj) {
         m_data.append(Buffer_view::from_obj(obj));
     }
@@ -136,6 +147,13 @@ struct Array_view {
 	u32 get_hash() const {
         return as_bytes().get_hash();
 	}
+    
+	int index(T const& obj) const {
+        for (int i = 0; i < size(); ++i) {
+            if ((*this)[i] == obj) return i;
+        }
+        return -1;
+	}
 
 	bool operator== (Array_view<T> const& other) const {
         return as_bytes() == other.as_bytes();
@@ -173,7 +191,7 @@ struct Array_view_mut {
 		assert(0 <= pos and pos < size());
 		return data()[pos];
 	}
-
+    
     Array_view_mut<T> subview(int pos, int size_) {
         assert(0 <= pos and pos + size_ <= size());
         return {data() + pos, size_};
@@ -186,7 +204,30 @@ struct Array_view_mut {
 	u32 get_hash() const {
         return as_bytes().get_hash();
 	}
+    
+	int index(T const& obj) const {
+        for (int i = 0; i < size(); ++i) {
+            if ((*this)[i] == obj) return i;
+        }
+        return -1;
+	}
 
+    constexpr T const* begin() const { return m_data; }
+	constexpr T const* end()   const { return m_data + m_size; }
+	constexpr T const* data()  const { return begin(); }
+
+    T const& front() const { return (*this)[0]; }
+    T const& back() const { return (*this)[size() - 1]; }
+    
+	T const& operator[] (int pos) const {
+		assert(0 <= pos and pos < size());
+		return data()[pos];
+	}
+    Array_view<T> subview(int pos, int size_) const {
+        assert(0 <= pos and pos + size_ <= size());
+        return {data() + pos, size_};
+    }
+    
 	bool operator== (Array_view<T> const& other) const {
         return as_bytes() == other.as_bytes();
 	}

@@ -3,10 +3,10 @@
 #include "array.hpp"
 #include "buffer.hpp"
 #include "objects.hpp"
-//#include "agent.hpp"
 #include "messages.hpp"
 #include "utilities.hpp"
 #include "simulation.hpp"
+#include "graph.hpp"
 
 namespace jup {
 
@@ -263,7 +263,7 @@ inline Debug_ostream& operator< (Debug_ostream& out, Diff_flat_arrays_base<T1, T
         } else if (type == Diff_flat_arrays::REMOVE) {
             out < tab > "type = REMOVE, ref = ";
             print_nice(out, diff.refs()[ref], *diff.container);
-            out > "\b, index = " < diff.diffs[i+2] > "\n";
+            out > "\b, index = " < (int)diff.diffs[i+2] > "\n";
         } else {
             assert(false);
         }
@@ -271,6 +271,15 @@ inline Debug_ostream& operator< (Debug_ostream& out, Diff_flat_arrays_base<T1, T
     --tab.n;
     out < tab > "} ";
 	return out;
+}
+
+inline Debug_ostream& operator< (Debug_ostream& out, Item_stack i) {
+    if (i.id == 0) {
+        out > "{} ";
+    } else {
+        out > "{" > get_string_from_id(i.id).c_str() > ", " < i.amount > "\b} ";
+    }
+    return out;
 }
 
 inline void consume_prefix_stack(Debug_ostream& out, Array<jup_str>& stack) {
@@ -446,7 +455,10 @@ void jdbg_diff(T const& a, T const& b) {
 #define display_var2(var, fmt) > #var " = " < fmt(obj.var) > "\b, "
 #define display_var(var) __select(display_var1, display_var2, var)
 #define display_obj(type, ...)                                          \
-    out > "(" #type ") {" __forall(display_var, __VA_ARGS__) > "\b\b} "
+    inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) { \
+	    return out > "(" #type ") {" __forall(display_var, __VA_ARGS__) > "\b\b} "; \
+    }
+    
 #define print_for_gdb(type) \
     inline void print(type const& obj) __attribute__ ((used));  \
     inline void print(type const& obj) {                        \
@@ -465,10 +477,8 @@ void jdbg_diff(T const& a, T const& b) {
 
 
 #define op(type, ...)                                                   \
-    inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) { \
-	    return display_obj(type, __VA_ARGS__);                              \
-    }                                                                       \
-    dodiff_obj(type, __VA_ARGS__)                                           \
+    display_obj(type, __VA_ARGS__)                                      \
+    dodiff_obj(type, __VA_ARGS__)                                       \
     print_for_gdb(type)
 
 #define hex(x) (x, make_hex)
@@ -483,7 +493,7 @@ op(Buffer_view, hex(m_data), m_size)
 op(Buffer, hex(m_data), m_size, mask(m_capacity, 0x7fffffff))
 op(Flat_array_ref, offset, element_size)
 
-op(Item_stack, id(item), amount)
+dodiff_obj(Item_stack, id(item), amount)
 op(Pos, lat, lon)
 op(Item, id(name), volume, consumed, tools)
 op(Role, id(name), speed, battery, load, tools)
@@ -508,7 +518,7 @@ op(Resource_node, id(name), resource, pos)
 op(Percept, deadline, id, simulation_step, team_money, self, entities, charging_stations, dumps,
     shops, storages, workshops, resource_nodes, auctions, jobs, missions, posteds)
 
-op(Task, type, id(where), item, job_id, crafter.id, cnt, fixer_it)
+op(Task, type, id(where), id, item, job_id, crafter.id, cnt, fixer_it)
 op(Task_result, time, err, err_arg)
 op(Shop_limit, id(shop), item)
 op(Item_cost, id(id), count, sum)
@@ -521,6 +531,8 @@ op(Self_sim, id(name), team, pos, role, charge, load, id(facility), action_name(
     action_result_name(action_result), task_index, task_state, task_sleep, items)
 op(Situation, simulation_step, team_money, selves, entities, charging_stations, dumps, shops,
     storages, workshops, resource_nodes, auctions, jobs, missions, posteds, strategy, book)
+
+display_obj(Graph_position, id, edge_pos)
 
 /*op(Requirement, type, dependency, item, where, is_tool, state, id)
 op(Job_execution, job, cost, needed)

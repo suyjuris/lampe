@@ -474,11 +474,22 @@ public:
     /**
      * Return whether the pointer is inside the buffer
      */
+    // duplicates Buffer_view::inside and Buffer_view::valid
     template <typename T>
     bool inside(T const* ptr) const {
-        // duplicates Buffer_view::inside
+        return inside((char const*)ptr, sizeof(T));
+    }
+    bool inside(char const* ptr, int size) const {
         return (void const*)begin() <= (void const*)ptr
-            and (void const*)(ptr + 1) <= (void const*)end();
+            and (void const*)(ptr + size) <= (void const*)end();
+    }
+    template <typename T>
+    bool valid(T const* ptr) const {
+        return valid((char const*)ptr, sizeof(T));
+    }
+    bool valid(char const* ptr, int size) const {
+        return (void const*)begin() <= (void const*)ptr
+            and (void const*)(ptr + size) <= (void const*)(data() + capacity());
     }
     
 	char* m_data = nullptr;

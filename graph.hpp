@@ -1,5 +1,6 @@
 #pragma once
 
+#include "array.hpp"
 #include "flat_data.hpp"
 #include "objects.hpp"
 
@@ -63,6 +64,7 @@ struct u24 {
 	inline u24(u32 const& val) : lb{ (u16)(val & 0xffff) }, hb{ (u8)((val & 0xff0000) >> 16) } { assert(val < 0x1000000); }
 	inline u24 operator=(u32 val) { assert(val < 0x1000000); lb = (u16)(val & 0xffff); hb = (u8)((val & 0xff0000) >> 16); return *this; }
 	inline operator u32() const { return ((u32)hb << 16) | lb; }
+    bool operator== (u24 o) const { return lb == o.lb and hb == o.hb; }
 };
 
 struct Graph_position {
@@ -87,6 +89,10 @@ struct Graph_position {
 	inline bool is_edge() const { return edge_pos; }
 	inline bool is_node() const { return !edge_pos; }
 	std::pair<Graph_position, Graph_position> operator,(Graph_position other) { return{ *this, other }; }
+
+    bool operator== (Graph_position o) const {
+        return id == o.id and edge_pos == o.edge_pos;
+    }
 };
 
 struct Graph {
@@ -169,6 +175,36 @@ struct Graph {
 
 	Buffer landmark_buffer;
 	Buffer landmark_data;
+};
+
+struct Dist_cache {
+    Buffer buffer;
+    Array_view_mut<u8> id_to_index1;
+    Array_view_mut<u8> id_to_index2;
+    Array_view_mut<Graph_position> positions;
+    Array_view_mut<u16> distances;
+    int size = 0;
+    int size_max = 0;
+    
+    int facility_count = 0;
+    Graph const* graph = nullptr;
+
+    void init(int facility_count, Graph const* graph);
+    void register_pos(u8 id, Pos pos);
+    void calc_facilities();
+    void calc_agents();
+    void reset();
+    void move_to(u8 id, u8 to_id);
+
+    void load_positions();
+
+    auto& m_dist(u8 a, u8 b) {
+        assert(0 <= a and a < size);
+        assert(0 <= b and b < size);
+        return distances[a * size_max + b];
+    }
+    u16 lookup(u8 a_id, u8 b_id);
+    u16 lookup_old(u8 a_id, u8 b_id);
 };
 
 } /* end of namespace jup */

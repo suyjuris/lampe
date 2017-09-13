@@ -308,11 +308,11 @@ void Mothership_test2::on_request_action() {
 #if 0
     if (sit().simulation_step == 0) {
         {auto const& shop = sit().shops[0];
-        sit().strategy.task(3, 0).task = Task {Task::BUY_ITEM, shop.id, {shop.items[0].id, 2}};}
+        sit().strategy.task(3, 0).task = Task {Task::BUY_ITEM, shop.id, 1, {shop.items[0].id, 2}};}
         {auto const& shop = sit().shops[1];
-        sit().strategy.task(3, 1).task = Task {Task::BUY_ITEM, shop.id, {shop.items[0].id, 1}};}
+        sit().strategy.task(3, 1).task = Task {Task::BUY_ITEM, shop.id, 2, {shop.items[0].id, 1}};}
         {auto const& shop = sit().shops[2];
-        sit().strategy.task(3, 2).task = Task {Task::BUY_ITEM, shop.id, {shop.items[0].id, 1}};}
+        sit().strategy.task(3, 2).task = Task {Task::BUY_ITEM, shop.id, 3, {shop.items[0].id, 1}};}
 
         sim_buffer.reset();
         sim_buffer.append(sit_buffer);
@@ -320,13 +320,13 @@ void Mothership_test2::on_request_action() {
     }
 #else
     if (sit().simulation_step == 0) {
-        sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+        sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 1,
             Item_stack {get_id_from_string("item10"), 1}, 2296};
-        sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+        sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 2,
             Item_stack {get_id_from_string("item11"), 1}, 2296};
-        sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+        sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 3,
             Item_stack {get_id_from_string("item14"), 1}, 2296};
-        sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"),
+        sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 4,
             Item_stack {get_id_from_string("item9" ), 1}, 2296};
         
         sim_buffer.reset();

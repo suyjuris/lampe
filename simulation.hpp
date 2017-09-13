@@ -18,7 +18,8 @@ constexpr u8 craft_max_wait = 15;
 constexpr u8 shop_assume_duration = 30;
 
 constexpr u8 fast_forward_steps = 80;
-constexpr u8 fixer_iterations = 20;
+constexpr u8 fixer_iterations = 40;
+constexpr u8 optimizer_iterations = 10;
 constexpr u8 max_idle_time = 10;
 
 constexpr float price_shop_factor = 1.25f / 1.25f;
@@ -27,7 +28,7 @@ constexpr u16   price_craft_val   = 125;
 constexpr u8    rate_additem_involved  = 30;
 constexpr u8    rate_additem_carryall  = 5;
 constexpr float rate_additem_idlescale = 0.125f;
-constexpr u8    rate_additem_inventory = 90;
+constexpr u8    rate_additem_inventory = 120;
 constexpr u8    rate_additem_shop      = 10;
 constexpr u8    rate_additem_crafting  = 0;
 constexpr u8    rate_additem_fatten    = 30;
@@ -37,7 +38,10 @@ constexpr float rate_job_cost    = 1.1f;
 constexpr float rate_job_havefac = 0.5f;
 constexpr float rate_job_profit  = 0.05f;
 
-constexpr u8 fixer_it_limit = 10;
+constexpr u8 fixer_it_limit = 5;
+
+constexpr float rate_val_item  = 1.0f;
+
 
 
 struct Task {
@@ -55,6 +59,7 @@ struct Task {
     
     u8 type;
     u8 where;
+    u16 id;
     Item_stack item;
     union {
         u16 job_id;
@@ -101,6 +106,7 @@ public:
 
     void step_init(Percept const& p0, Buffer* containing);
     void step_update(Percept const& p, u8 id, Buffer* containing);
+    void step_post(Buffer* containing);
     
 	u8 team;
 	u16 seed_capital;
@@ -168,12 +174,7 @@ struct Strategy {
     auto p_tasks()   const { return Partial_view_range<Partial_viewer_task>        {m_tasks}; }
     auto p_results() const { return Partial_view_range<Partial_viewer_task_result> {m_tasks}; }
 
-    void insert_task(u8 agent, u8 index, Task task_) {
-        for (u8 i = planning_max_tasks - 1; i > index; --i) {
-            task(agent, i) = task(agent, i-1);
-        }
-        task(agent, index).task = task_;
-    }
+    void insert_task(u8 agent, u8 index, Task task_);
     Task pop_task(u8 agent, u8 index) {
         Task result = task(agent, index).task;
         for (u8 i = index; i + 1 < planning_max_tasks; ++i) {
@@ -247,8 +248,9 @@ public:
     void get_action(World const& world, Situation const& old, u8 agent,
         Buffer* into /*= nullptr*/, Diff_flat_arrays* diff);
 
-    void agent_goto_nl(World const& world, u8 agent, u8 target_id);
-    void task_update(World const& world, u8 agent, Diff_flat_arrays* diff);
+    u16 agent_dist(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id);
+    void agent_goto_nl(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id);
+    void task_update(World const& world, Dist_cache* dist_cache, u8 agent, Diff_flat_arrays* diff);
 
     bool agent_goto(u8 where, u8 agent, Buffer* into);
 
@@ -263,6 +265,9 @@ public:
     World* world;
     Diff_flat_arrays diff;
     Rng rng;
+    Dist_cache dist_cache;
+
+    u16 task_next_id = 0;
     
     int orig_offset, orig_size;
     int sit_offset;
@@ -285,6 +290,7 @@ public:
 
     void fix_errors();
     void create_work();
+    void optimize();
     float rate();
 
     void remove_task(u8 agent, u8 index);

@@ -1,4 +1,5 @@
 
+#include "objects.hpp"
 #include "graph.hpp"
 
 namespace jup {
@@ -612,7 +613,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 				// update incumbent
 				midnode = nodef;
 				inc = d;
-				if (t.is_node() and t.id == nodef) break;
+				if (t.is_node() and (u32)t.id == nodef) break;
 				// prune active nodes
 				if (elf->first >= d) {
 					// this should not happen
@@ -665,7 +666,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 				// update incumbent
 				midnode = nodeb;
 				inc = d;
-				if (s.is_node() and s.id == nodeb) break;
+				if (s.is_node() and (u32)s.id == nodeb) break;
 				// prune active nodes
 				if (elb->first >= d) {
 					// this should not happen
@@ -1044,6 +1045,128 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 
 	landmark_buffer.emplace_back<Landmarks_t>();
 	landmark_buffer.get<Landmarks_t>().init(&landmark_buffer);
+}
+
+
+void Dist_cache::init(int facility_count_, Graph const* graph_) {
+    facility_count = facility_count_;
+    graph = graph_;
+
+    size_max = facility_count + agents_per_team;
+    buffer.resize(sizeof(u8) * 256 * 2 + sizeof(Graph_position) * size_max
+        + sizeof(u16) * (size_max * size_max));
+    
+    std::memset(buffer.data(), 0xff, buffer.size());
+    id_to_index1 = {(u8*)buffer.data(), 256};
+    id_to_index2 = {(u8*)id_to_index1.end(), 256};
+    positions = {(Graph_position*)id_to_index2.end(), size_max};
+    distances = {(u16*)positions.end(), size_max * size_max};
+    assert((char*)distances.end() == buffer.end());
+
+    for (auto& i: id_to_index1) { i = 0xff; }
+    size = 0;
+}
+    
+void Dist_cache::register_pos(u8 id, Pos pos) {
+    auto pos_g = graph->pos(pos);
+    int index = positions.index(pos_g);
+    if (index == -1 or index >= size) {
+        index = size++;
+        positions[index] = pos_g;
+        assert(size <= size_max);
+    }
+    narrow(id_to_index1[id], index);
+}
+
+void Dist_cache::calc_facilities() {
+    assert(size == facility_count);
+
+    /*for (u8 a = 0; a < size; ++a) {
+        m_dist(a, a) = 0;
+        for (u8 b = a + 1; b < size; ++b) {
+            m_dist(a, b) = (u16)(graph->dist_road(positions[a], positions[b]) / 1000);
+            m_dist(b, a) = (u16)(graph->dist_road(positions[b], positions[a]) / 1000);
+        }
+        }*/
+}
+
+void Dist_cache::calc_agents() {
+    /*for (u8 a = facility_count; a < size; ++a) {
+        m_dist(a, a) = 0;
+        for (u8 b = 0; b < a; ++b) {
+            m_dist(a, b) = (u16)(graph->dist_road(positions[a], positions[b]) / 1000);
+            m_dist(b, a) = (u16)(graph->dist_road(positions[b], positions[a]) / 1000);
+        }
+        } */   
+}
+
+
+    /*for (int i = 0; i < 16; ++i) {
+        for (auto j: dist_cache.id_to_index1.subview(i*16, 16)) {
+            jdbg > jup_printf("%4d", (int)j);
+        }
+        jdbg,0;
+    }
+        jdbg,0;
+    for (int i = 0; i < 16; ++i) {
+        for (auto j: dist_cache.id_to_index2.subview(i*16, 16)) {
+            jdbg > jup_printf("%4d", (int)j);
+        }
+        jdbg,0;
+    }
+        jdbg,0;
+    for (u8 a = 0; a < dist_cache.size; ++a) {
+        for (u8 b = 0; b < dist_cache.size; ++b) {
+            jdbg > jup_printf("%6d", (int)dist_cache.m_dist(a, b));
+        }
+        jdbg,0;
+    }
+    jdbg,0;*/
+
+void Dist_cache::reset() {
+    for (u8 a = 0; a < facility_count; ++a) {
+        std::memset(
+            distances.data() + a*size_max + facility_count,
+            0xff,
+            (size_max - facility_count) * sizeof(u16)
+        );
+    }
+    std::memset(
+        distances.data() + facility_count*size_max,
+        0xff,
+        size_max * (size_max - facility_count) * sizeof(u16)
+    );
+
+    size = facility_count;
+    for (auto& i: id_to_index1) {
+        if (i > size) i = 0xff;
+    }
+}
+
+void Dist_cache::move_to(u8 id, u8 to_id) {
+    id_to_index2[id] = id_to_index2[to_id];
+}
+
+void Dist_cache::load_positions() {
+    std::memcpy(id_to_index2.data(), id_to_index1.data(), id_to_index2.size() * sizeof(u8));
+}
+
+u16 Dist_cache::lookup(u8 a_id, u8 b_id) {
+    u8 a = id_to_index2[a_id];
+    u8 b = id_to_index2[b_id];
+    if (m_dist(a, b) == 0xffff) {
+        m_dist(a, b) = a == b ? 0 : (u16)(graph->dist_road(positions[a], positions[b]) / 1000);
+    }
+    return m_dist(a, b);
+}
+
+u16 Dist_cache::lookup_old(u8 a_id, u8 b_id) {
+    u8 a = id_to_index1[a_id];
+    u8 b = id_to_index1[b_id];
+    if (m_dist(a, b) == 0xffff) {
+        m_dist(a, b) = a == b ? 0 : (u16)(graph->dist_road(positions[a], positions[b]) / 1000);
+    }
+    return m_dist(a, b);
 }
 
 } /* end of namespace jup */
