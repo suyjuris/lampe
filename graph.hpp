@@ -12,7 +12,8 @@ struct Edge;
 
 constexpr u32 node_invalid = 0xffffffff;
 constexpr u32 edge_invalid = 0xffffffff;
-constexpr u32 landmark_invalid = 0xffffffff;
+constexpr u32 dist_invalid = 0xffffffff;
+constexpr u32 lookup_invalid = 0xffffffff;
 
 struct Edge_iterator: public std::iterator<Edge, std::forward_iterator_tag> {
     Graph const* graph = nullptr;
@@ -93,6 +94,9 @@ struct Graph_position {
     bool operator== (Graph_position o) const {
         return id == o.id and edge_pos == o.edge_pos;
     }
+	bool operator< (Graph_position o) const {
+		return id < o.id or (id == o.id and edge_pos < o.edge_pos);
+	}
 };
 
 struct Graph {
@@ -102,7 +106,6 @@ struct Graph {
 	static constexpr int const geo_size = (sizeof(Geometry_t::Offset_t) + sizeof(Geometry_t::Size_t));
 	static_assert(sizeof(Geometry_t::Type) == 2 * geo_size, "Geometry offset mismatch");
 	using Route_t = Flat_array<u32, u16, u16>;
-	using Landmarks_t = Flat_array<std::pair<u32, u32>, u32, u32>;
 
 
     /**
@@ -139,10 +142,6 @@ struct Graph {
 		}
 	} A{ this };
 
-	void add_landmark(u32 node);
-	void add_landmark(Graph_position pos);
-	u32 landmark(u32 node) const;
-
     /**
      * Returns the actual coordinates from a position
      */
@@ -152,10 +151,6 @@ struct Graph {
     auto const& nodes() const { return m_data.get<Nodes_t>(node_offset); }
 	auto const& edges() const { return m_data.get<Edges_t>(edge_offset); }
 	auto const& geometry(u32 ofs) const { return m_data.get<Geometry_t>(geometry_offset + geo_size * ofs); }
-	auto const* landmark_distf(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 0) * nodes().size(); }
-	auto const* landmark_prev(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 1) * nodes().size(); }
-	auto const* landmark_distb(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 2) * nodes().size(); }
-	auto const* landmark_next(u32 n) const { return (u32 const*)landmark_data.data() + (4 * n + 3) * nodes().size(); }
 
     double map_min_lat = 0.0;
     double map_max_lat = 0.0;
@@ -172,12 +167,10 @@ struct Graph {
 	int name_offset = -1;
 
 	int name_size = 0;
-
-	Buffer landmark_buffer;
-	Buffer landmark_data;
 };
 
 struct Dist_cache {
+	using Lookups_t = Flat_array<std::pair<Graph_position, u32>, u32, u32>;
     Buffer buffer;
     Array_view_mut<u8> id_to_index1;
     Array_view_mut<u8> id_to_index2;
@@ -205,6 +198,16 @@ struct Dist_cache {
     }
     u16 lookup(u8 a_id, u8 b_id);
     u16 lookup_old(u8 a_id, u8 b_id);
+
+	void add_lookup(Graph_position pos);
+	u32 get_lookup(Graph_position pos) const;
+	auto const* lookup_distf(u32 n) const { return (u32 const*)lookup_data.data() + (4 * n + 0) * graph->nodes().size(); }
+	auto const* lookup_prev(u32 n) const { return (u32 const*)lookup_data.data() + (4 * n + 1) * graph->nodes().size(); }
+	auto const* lookup_distb(u32 n) const { return (u32 const*)lookup_data.data() + (4 * n + 2) * graph->nodes().size(); }
+	auto const* lookup_next(u32 n) const { return (u32 const*)lookup_data.data() + (4 * n + 3) * graph->nodes().size(); }
+
+	Buffer lookup_buffer;
+	Buffer lookup_data;
 };
 
 } /* end of namespace jup */
