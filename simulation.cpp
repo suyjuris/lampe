@@ -271,34 +271,6 @@ Situation::Situation(Percept const& p0, Situation const* sit_old, Buffer* contai
         std::memcpy(&this_->strategy, &sit_old->strategy, sizeof(strategy));
     }
 }
-    
-void Situation::flush_old(World const& world, Situation const& old, Diff_flat_arrays* diff) {
-    assert(diff);
-    for (u8 agent = 0; agent < number_of_agents; ++agent) {
-        get_action(world, old, agent, nullptr, diff);
-    }
-    
-    assert(&strategy.task(0, 1) - &strategy.task(0, 0) == 1);
-
-    for (u8 agent = 0; agent < number_of_agents; ++agent) {
-        if (self(agent).task_index == 0) continue;
-        int active_tasks = planning_max_tasks - self(agent).task_index;
-        std::memmove(
-            &strategy.task(agent, 0),
-            &strategy.task(agent, self(agent).task_index),
-            sizeof(Task_slot) * active_tasks
-        );
-        std::memset(
-            &strategy.task(agent, active_tasks),
-            0,
-            self(agent).task_index
-        );
-        self(agent).task_index = 0;
-        self(agent).task_state = 0;
-        self(agent).task_sleep = 0;
-    }
-}
-
 void Situation::update(Percept const& p, u8 id, Buffer* containing) {
     assert(containing and containing->inside(this));
     
@@ -339,6 +311,24 @@ void Bookkeeping::add_item_to_job(u16 job_id, Item_stack item, Diff_flat_arrays*
     }
     diff->add(delivered, {job_id, item});
 }
+    
+void Situation::flush_old(World const& world, Situation const& old, Diff_flat_arrays* diff) {
+    assert(diff);
+    moving_on(world, old, diff);
+    
+    assert(&strategy.task(0, 1) - &strategy.task(0, 0) == 1);
+
+    for (u8 agent = 0; agent < number_of_agents; ++agent) {
+        if (self(agent).task_index == 0) continue;
+        while (self(agent).task_index) {
+            strategy.pop_task(agent, 0);
+            --self(agent).task_index;
+        }
+        self(agent).task_index = 0;
+        self(agent).task_state = 0;
+        self(agent).task_sleep = 0;
+    }
+}
 
 void Situation::register_arr(Diff_flat_arrays* diff) {
     assert(diff);
@@ -365,6 +355,7 @@ void Situation::register_arr(Diff_flat_arrays* diff) {
     diff->register_arr(posteds, "posteds");
     for (auto& i: posteds) diff->register_arr(i.required, "posted.required");
     diff->register_arr(book.delivered, "book.delivered");
+    diff->register_commit();
 }
 
 bool Situation::agent_goto(u8 where, u8 agent, Buffer* into) {
@@ -374,126 +365,180 @@ bool Situation::agent_goto(u8 where, u8 agent, Buffer* into) {
     if (d.facility == where) {
         return true;
     } else {
-        if (into) into->emplace_back<Action_Goto1>(where);
+        into->emplace_back<Action_Goto1>(where);
         return false;
     }
 }
 
-void Situation::get_action(World const& world, Situation const& old, u8 agent, Buffer* into, Diff_flat_arrays* diff) {
-    auto& d = self(agent);
-    
-    while (d.task_index < planning_max_tasks) {
-        auto& t = task(agent);
+void Situation::moving_on(World const& world, Situation const& old, Diff_flat_arrays* diff) {
+    moving_on_one(world, old, diff);
 
-        bool move_on = false;
+    while (true) {
+        // Check whether some assemblers are not required
+        Crafting_plan plan = combined_plan(world);
 
-        if (t.task.type == Task::NONE) {
-            if (into) into->emplace_back<Action_Abort>();
-            return;
-        } else if (t.task.type == Task::BUY_ITEM) {
-            if (not agent_goto(t.task.where, agent, into)) {
-                return;
+        for (u8 agent = 0; agent < number_of_agents; ++agent) {
+            if (plan.slot(agent).type == Crafting_slot::USELESS) {
+                auto& d = self(agent);
+                ++d.task_index;
+                d.task_state = 0;
+                d.task_sleep = 0;
             }
-            
-            if (d.action_type == Action::BUY and not d.action_result) {
-                d.action_type = Action::ABORT;
-                t.task.item.amount = 0;
-            } 
-            if (t.task.item.amount == 0) {
-                move_on = true;
-            } else {
-                if (into) into->emplace_back<Action_Buy>(t.task.item);
-                return;
-            }
-        } else if (t.task.type == Task::CRAFT_ITEM) {
-            if (not agent_goto(t.task.where, agent, into)) {
-                return;
-            }
-            
-            if (d.action_type == Action::ASSEMBLE and not d.action_result) {
-                d.action_type = Action::ABORT;
-                --t.task.item.amount;
-            } 
-            if (t.task.item.amount == 0) {
-                move_on = true;
-            } else {
-                if (into) into->emplace_back<Action_Assemble>(t.task.item.id);
-                return;
-            }
-        } else if (t.task.type == Task::CRAFT_ASSIST) {
-            if (not agent_goto(t.task.where, agent, into)) {
-                return;
-            }
-            
-            if (d.action_type == Action::ASSIST_ASSEMBLE and not d.action_result) {
-                d.action_type = Action::ABORT;
-                --t.task.cnt;
-            } 
-            if (t.task.cnt == 0) {
-                move_on = true;
-            } else {
-                auto const& o_t = task(t.task.crafter.id);
-                if (o_t.task.type == Task::CRAFT_ITEM and o_t.task.crafter == t.task.crafter) {
-                    if (into) into->emplace_back<Action_Assist_assemble>(self(t.task.crafter.id).name);
-                } else {
-                    if (into) into->emplace_back<Action_Abort>();
-                }
-                return;
-            }
-        } else if (t.task.type == Task::DELIVER_ITEM) {
-            if (not agent_goto(t.task.where, agent, into)) {
-                return;
-            }
-
-            if (d.action_type == Action::DELIVER_JOB and (not d.action_result
-                    or d.action_result == Action::SUCCESSFUL_PARTIAL)) {
-                d.action_type = Action::ABORT;
-                for (auto old_item: old.self(agent).items) {
-                    if (auto new_item = find_by_id(d.items, old_item.id)) {
-                        assert(old_item.amount >= new_item->amount);
-                        if (old_item.amount > new_item->amount) {
-                            Item_stack deliv {old_item.id, (u8)(old_item.amount - new_item->amount)};
-                            book.add_item_to_job(t.task.job_id, deliv, diff);
-                        }
-                    } else if (old_item.amount > 0) {
-                        book.add_item_to_job(t.task.job_id, old_item, diff);
-                    }
-                }
-                    
-                move_on = true;
-            } else {
-                if (into) into->emplace_back<Action_Deliver_job>(t.task.job_id);
-                return;
-            }            
-        } else if (t.task.type == Task::CHARGE) {
-            if (not agent_goto(t.task.where, agent, into)) {
-                return;
-            }
-
-            if (d.charge == world.roles[agent].battery) {
-                move_on = true;
-            } else {
-                if (into) into->emplace_back<Action_Charge>();
-                return;
-            }
-        } else if (t.task.type == Task::VISIT) {
-            if (agent_goto(t.task.where, agent, into)) {
-                move_on = true;
-            } else {
-                return;
-            }
-        } else {
-            assert(false);
         }
 
-        assert(move_on);
-
-        ++d.task_index;
-        d.task_state = 0;
-        d.task_sleep = 0;
+        if (not moving_on_one(world, old, diff)) break;
     }
+}
     
-    if (into) into->emplace_back<Action_Abort>();
+bool Situation::moving_on_one(World const& world, Situation const& old, Diff_flat_arrays* diff) {
+    bool dirty = false;
+    
+    for (u8 agent = 0; agent < number_of_agents; ++agent) {
+        auto& d = self(agent);
+        while (d.task_index < planning_max_tasks) {
+            auto& t = task(agent);
+        
+            bool move_on = false;
+        
+            if (t.task.type == Task::NONE) {
+                break;
+            } else if (t.task.type == Task::BUY_ITEM) {
+                if (d.facility != t.task.where) break;
+                
+                if (d.action_type == Action::BUY and not d.action_result) {
+                    d.action_type = Action::ABORT;
+                    t.task.item.amount = 0;
+                } 
+                if (t.task.item.amount == 0) {
+                    move_on = true;
+                } else {
+                    break;
+                }
+            } else if (t.task.type == Task::CRAFT_ITEM) {
+                if (d.facility != t.task.where) break;
+                
+                if (d.action_type == Action::ASSEMBLE and not d.action_result) {
+                    d.action_type = Action::ABORT;
+                    --t.task.item.amount;
+                } 
+                if (t.task.item.amount == 0) {
+                    move_on = true;
+                } else {
+                    break;
+                }
+            } else if (t.task.type == Task::CRAFT_ASSIST) {
+                if (d.facility != t.task.where) break;
+                
+                if (d.action_type == Action::ASSIST_ASSEMBLE and not d.action_result) {
+                    d.action_type = Action::ABORT;
+                    --t.task.cnt;
+                } 
+                if (t.task.cnt == 0) {
+                    move_on = true;
+                } else {
+                    break;
+                }
+            } else if (t.task.type == Task::DELIVER_ITEM) {
+                if (d.facility != t.task.where) break;
+        
+                if (d.action_type == Action::DELIVER_JOB and (not d.action_result
+                        or d.action_result == Action::SUCCESSFUL_PARTIAL)) {
+                    d.action_type = Action::ABORT;
+                    for (auto old_item: old.self(agent).items) {
+                        if (auto new_item = find_by_id(d.items, old_item.id)) {
+                            assert(old_item.amount >= new_item->amount);
+                            if (old_item.amount > new_item->amount) {
+                                Item_stack deliv {old_item.id, (u8)(old_item.amount - new_item->amount)};
+                                book.add_item_to_job(t.task.job_id, deliv, diff);
+                            }
+                        } else if (old_item.amount > 0) {
+                            book.add_item_to_job(t.task.job_id, old_item, diff);
+                        }
+                    }
+                        
+                    move_on = true;
+                } else {
+                    break;
+                }            
+            } else if (t.task.type == Task::CHARGE) {
+                if (d.facility != t.task.where) break;
+        
+                if (d.charge == world.roles[agent].battery) {
+                    move_on = true;
+                } else {
+                    break;
+                }
+            } else if (t.task.type == Task::VISIT) {
+                if (d.facility != t.task.where) break;
+                move_on = true;
+            } else {
+                assert(false);
+            }
+        
+            assert(move_on);
+        
+            ++d.task_index;
+            d.task_state = 0;
+            d.task_sleep = 0;
+            dirty = true;
+        }
+    }
+
+    return dirty;
+}
+
+void Situation::get_action(World const& world, Situation const& old, u8 agent, Crafting_slot const& cs, Buffer* into) {
+    auto& t = task(agent);
+
+    if (t.task.type == Task::NONE) {
+        into->emplace_back<Action_Abort>();
+        return;
+    } else if (t.task.type == Task::BUY_ITEM) {
+        if (agent_goto(t.task.where, agent, into)) {
+            into->emplace_back<Action_Buy>(t.task.item);
+        }
+        return;
+    } else if (t.task.type == Task::CRAFT_ITEM or t.task.type == Task::CRAFT_ASSIST) {
+        if (agent_goto(t.task.where, agent, into)) {
+            if (cs.type == Crafting_slot::UNINVOLVED or cs.type == Crafting_slot::IDLE) {
+                into->emplace_back<Action_Abort>();
+            } else if (cs.type == Crafting_slot::EXECUTE) {
+                assert(task(cs.agent).task.type == Task::CRAFT_ITEM
+                    and task(cs.agent).task.craft_id == t.task.craft_id);
+                if (t.task.type == Task::CRAFT_ITEM) {
+                    into->emplace_back<Action_Assemble>(t.task.item.id);
+                } else {
+                    into->emplace_back<Action_Assist_assemble>(self(cs.agent).name);
+                }
+            } else if (cs.type == Crafting_slot::GIVE) {
+                into->emplace_back<Action_Give>(self(cs.agent).name, cs.item);
+            } else if (cs.type == Crafting_slot::RECEIVE) {
+                into->emplace_back<Action_Receive>();
+            } else if (cs.type == Crafting_slot::USELESS) {
+                t.task.item.amount = 0;
+                into->emplace_back<Action_Abort>();
+            } else {
+                assert(false);
+            }
+        }
+        return;
+    } else if (t.task.type == Task::DELIVER_ITEM) {
+        if (agent_goto(t.task.where, agent, into)) {
+            into->emplace_back<Action_Deliver_job>(t.task.job_id);
+        }
+        return;
+    } else if (t.task.type == Task::CHARGE) {
+        if (agent_goto(t.task.where, agent, into)) {
+            into->emplace_back<Action_Charge>();
+        }
+        return;
+    } else if (t.task.type == Task::VISIT) {
+        agent_goto(t.task.where, agent, into);
+        return;
+    } else {
+        assert(false);
+    }
+    into->emplace_back<Action_Abort>();
     return;
 }
 
@@ -581,7 +626,7 @@ void Situation::agent_goto_nl(World const& world, Dist_cache* dist_cache, u8 age
         dist_add = std::min(dist_add, dist_cache->lookup(target_id, i.id));
     }
     
-    if (dist + dist_add > (d.charge / 10 - 1) * speed) {
+    if (dist + dist_add + speed > d.charge / 10 * speed) {
         task(agent).result.err = Task_result::OUT_OF_BATTERY;
         d.task_state = 0xfe;
     } else {
@@ -592,6 +637,189 @@ void Situation::agent_goto_nl(World const& world, Dist_cache* dist_cache, u8 age
         d.pos = find_pos(target_id);
         dist_cache->move_to(d.name, target_id);
     }
+}
+
+static Array_view<u8> agent_first(u8 agent) {
+    static u8 result[number_of_agents];
+    result[0] = agent;
+    for (u8 i = 0; i < number_of_agents - 1; ++i)
+        result[i+1] = i + (i >= agent);
+    return {result, number_of_agents};
+}
+static u8 diff_min(Task const& task, u8 item_id) {
+    // Returns an upper bound of the difference in item_id
+
+    switch (task.type) {
+    case Task::NONE:
+    case Task::CHARGE:
+    case Task::VISIT:
+        return 0;
+
+    case Task::BUY_ITEM:
+    case Task::CRAFT_ITEM:
+        return task.item.id != item_id ? 0 : task.item.amount;
+
+    case Task::CRAFT_ASSIST:
+    case Task::DELIVER_ITEM:
+        return task.item.id != item_id ? 0 : -task.item.amount;
+
+    default:
+        assert(false);
+    }
+}
+
+bool Situation::is_possible_item(World const& world, u8 agent, Task_slot& t, Item_stack i,
+    bool is_tool, bool at_all, Crafting_plan* plan)
+{
+    int count = is_tool ? 1 : i.amount * t.task.item.amount;
+
+    for (u8 o_agent: agent_first(agent)) {
+        auto const& o_d = self(o_agent);
+        if (o_d.task_index >= planning_max_tasks) continue;
+        if (is_tool and not world.roles[o_agent].tools.count(i.id)) continue;
+        
+        auto const& o_t = strategy.task(o_agent, o_d.task_index);
+        bool involved = (
+            o_agent == agent or (
+                o_t.task.type == Task::CRAFT_ASSIST
+                and o_t.task.craft_id == t.task.craft_id
+                and o_d.facility == o_t.task.where
+                and (o_d.task_sleep == 0 or o_d.task_state == 2)
+            )
+        );
+        int have = 0;
+        if (auto j = find_by_id(o_d.items, i.id)) {
+            have = j->amount;
+        }
+
+        if (plan) {
+            if (involved and plan->slot(o_agent).type == Crafting_slot::UNINVOLVED) {
+                plan->slot(o_agent).type = Crafting_slot::USELESS;                
+            }
+            if (involved and count and have) {
+                if (is_tool) {
+                    plan->slot(o_agent).type = Crafting_slot::IDLE;
+                } else if (plan->slot(o_agent).type == Crafting_slot::USELESS) {
+                    plan->slot(o_agent).type = Crafting_slot::GIVE;
+                    plan->slot(o_agent).item = {i.id, (u8)std::min(have, count)};
+                }
+            }
+        }
+
+        if (involved) {
+            count -= std::min(have, count);
+        } else if (at_all) {
+            // Check whether a future task may bring the items
+
+            for (u8 o_i = o_d.task_index; o_i < planning_max_tasks; ++o_i) {
+                auto const& o_tt = strategy.task(o_agent, o_i);
+                if (
+                    o_tt.task.type == Task::CRAFT_ASSIST
+                    and o_tt.task.craft_id == t.task.craft_id
+                ) {
+                    count -= std::min(have, count);
+                    break;
+                } else {
+                    have += diff_min(o_tt.task, i.item);
+                }
+            }
+        }
+    }
+        
+    if (count > 0) {
+        if (at_all) {
+            if (is_tool) {
+                t.result.err = Task_result::CRAFT_NO_TOOL;
+                t.result.err_arg = {i.id, 1};
+            } else {
+                t.result.err = Task_result::CRAFT_NO_ITEM;
+                t.result.err_arg = {i.id, narrow<u8>(count)};
+            }
+        }
+        return false;
+    }
+    return true;
+}
+
+Crafting_plan Situation::crafting_orchestrator(World const& world, u8 agent) {
+    auto& t = task(agent);
+    assert(t.task.type == Task::CRAFT_ITEM);
+
+    Crafting_plan plan = {};
+
+    if (t.task.where != self(agent).facility) return plan;
+    plan.slot(agent).type = Crafting_slot::IDLE;
+    
+    // Check whether the agent can craft the item _right now_
+    auto is_possible_right_now = [&]() -> bool {
+        Item const& item = get_by_id(world.items, t.task.item.id);
+
+        // Evaluate all of the, because the states in plan need to be updated.
+        bool possible = true;
+        for (Item_stack i: item.consumed) {
+            possible &= is_possible_item(world, agent, t, i, false, false, &plan);
+        }
+        for (u8 i: item.tools) {
+            possible &= is_possible_item(world, agent, t, {i, 1}, true, false, &plan);
+        }
+        
+        return possible;
+    };
+
+    if (is_possible_right_now()) {
+        for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
+            if (plan.slot(o_agent).type == Crafting_slot::UNINVOLVED) continue;
+            plan.slot(o_agent).type = Crafting_slot::EXECUTE;
+            plan.slot(o_agent).agent = agent;
+        }
+    } else {
+        // Try to give the items to someone else
+        for (u8 o_agent = number_of_agents - 1; o_agent < number_of_agents; --o_agent) {
+            if (plan.slot(o_agent).type != Crafting_slot::GIVE) continue;
+
+            auto const& w_item = get_by_id(world.items, plan.slot(o_agent).item.id);
+            int load = w_item.volume * plan.slot(o_agent).item.amount;
+
+            u8 found_agent = 0xff;
+            for (u8 q_agent = number_of_agents - 1; q_agent < number_of_agents; --q_agent) {
+                if (plan.slot(q_agent).type != Crafting_slot::IDLE
+                    and plan.slot(q_agent).type != Crafting_slot::RECEIVE) continue;
+                //and not (plan.slot(o_agent).type == Crafting_slot::GIVE and q_agent > o_agent)*/
+                if (world.roles[q_agent].load - self(q_agent).load
+                    - plan.slot(q_agent).extra_load < load) continue;
+
+                found_agent = q_agent;
+                break;
+            }
+
+            if (found_agent != 0xff) {
+                plan.slot(found_agent).type = Crafting_slot::RECEIVE;
+                plan.slot(found_agent).extra_load += load;
+                plan.slot(o_agent).agent = found_agent;
+            } else {
+                plan.slot(o_agent).type = Crafting_slot::IDLE;
+            }
+        }
+    }
+
+    return plan;
+}
+
+
+Crafting_plan Situation::combined_plan(World const& world) {
+    Crafting_plan result = Crafting_plan {};
+    for (u8 agent = 0; agent < number_of_agents; ++agent) {
+        if (task(agent).task.type == Task::CRAFT_ITEM) {
+            auto plan = crafting_orchestrator(world, agent);
+            for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
+                assert(not (result.slot(o_agent).type and plan.slot(o_agent).type));
+                if (plan.slot(o_agent).type) {
+                    result.slot(o_agent) = plan.slot(o_agent);
+                }
+            }
+        }
+    }
+    return result;
 }
 
 void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent, Diff_flat_arrays* diff) {
@@ -646,116 +874,15 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
             agent_goto_nl(world, dist_cache, agent, t.task.where);
         }
 
-        auto agent_first = [](u8 agent) {
-            static u8 result[number_of_agents];
-            result[0] = agent;
-            for (u8 i = 0; i < number_of_agents - 1; ++i)
-                result[i+1] = i + (i >= agent);
-            return Array_view<u8> {result, number_of_agents};
-        };
-
-        auto diff_min = [](Task const& task, u8 item_id) {
-            // Returns an upper bound of the difference in item_id
-        
-            switch (task.type) {
-            case Task::NONE:
-            case Task::CHARGE:
-            case Task::VISIT:
-                return 0;
-        
-            case Task::BUY_ITEM:
-            case Task::CRAFT_ITEM:
-                return task.item.id != item_id ? 0 : task.item.amount;
-        
-            case Task::CRAFT_ASSIST:
-            case Task::DELIVER_ITEM:
-                return task.item.id != item_id ? 0 : -task.item.amount;
-        
-            default:
-                assert(false);
-            }
-        };
-
-        auto is_possible_item = [&](Item_stack i, bool is_tool, bool at_all) {
-            int count = is_tool ? 1 : i.amount * t.task.item.amount;
-
-            for (u8 o_agent: agent_first(agent)) {
-                auto const& o_d = self(o_agent);
-                if (o_d.task_index >= planning_max_tasks) continue;
-                if (is_tool and not world.roles[o_agent].tools.count(i.id)) continue;
-                
-                auto const& o_t = strategy.task(o_agent, o_d.task_index);
-                bool involved = (
-                    o_agent == agent or (
-                        o_t.task.type == Task::CRAFT_ASSIST
-                        and o_t.task.crafter == t.task.crafter
-                        and o_d.task_state == 2
-                    )
-                );
-                int have = 0;
-                if (auto j = find_by_id(o_d.items, i.item)) {
-                    have = j->amount;
-                }
-
-                if (involved) {
-                    count -= have;
-                } else if (at_all) {
-                    // Check whether a future task may bring the items
-
-                    for (u8 o_i = o_d.task_index; o_i < planning_max_tasks; ++o_i) {
-                        auto const& o_tt = strategy.task(o_agent, o_i);
-                        if (
-                            o_tt.task.type == Task::CRAFT_ASSIST
-                            and o_tt.task.crafter == t.task.crafter
-                        ) {
-                            count -= have;
-                            break;
-                        } else {
-                            have += diff_min(o_tt.task, i.item);
-                        }
-                    }
-                }
-                if (count <= 0) break;
-            }
-                
-            if (count > 0) {
-                if (at_all) {
-                    if (is_tool) {
-                        t.result.err = Task_result::CRAFT_NO_TOOL;
-                        t.result.err_arg = {i.id, 1};
-                    } else {
-                        t.result.err = Task_result::CRAFT_NO_ITEM;
-                        t.result.err_arg = {i.id, narrow<u8>(count)};
-                    }
-                }
-                return false;
-            }
-            return true;
-        };
-        
         // Try to disprove that the agent can craft the item
         auto is_possible_at_all = [&]() -> bool {
             Item const& item = get_by_id(world.items, t.task.item.id);
-  
-            for (Item_stack i: item.consumed) {
-                if (not is_possible_item(i, false, true)) return false;
-            }
-            for (u8 i: item.tools) {
-                if (not is_possible_item({i, 1}, true, true)) return false;
-            }
-            
-            return true;
-        };
 
-        // Check whether the agent can craft the item _right now_
-        auto is_possible_right_now = [&]() -> bool {
-            Item const& item = get_by_id(world.items, t.task.item.id);
-  
-            for (Item_stack i: item.consumed) {
-                if (not is_possible_item(i, false, false)) return false;
-            }
             for (u8 i: item.tools) {
-                if (not is_possible_item({i, 1}, true, false)) return false;
+                if (not is_possible_item(world, agent, t, {i, 1}, true, true)) return false;
+            }
+            for (Item_stack i: item.consumed) {
+                if (not is_possible_item(world, agent, t, i, false, true)) return false;
             }
             
             return true;
@@ -778,12 +905,47 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
             }
             
             d.task_state = 2;
+            // Wait one fast_forward iteration for concurrent actions to be commited
+            return;
         }
         if (d.task_state == 2 and d.task_sleep == 0) {
-            if (not is_possible_right_now()) {
+            Crafting_plan plan = crafting_orchestrator(world, agent);
+            if (plan.slot(agent).type != Crafting_slot::EXECUTE) {
                 if (is_possible_at_all()) {
                     // One of the assists will hopefully wake us up
                     d.task_sleep = 0xff;
+
+                    // Execute the crafting plan
+                    for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
+                        auto const& cs = plan.slot(o_agent);
+                        switch (cs.type) {
+                        case Crafting_slot::UNINVOLVED:
+                        case Crafting_slot::IDLE:
+                        case Crafting_slot::RECEIVE:
+                            break;
+                        case Crafting_slot::USELESS:
+                            self(o_agent).task_state = 0xff;
+                            self(o_agent).task_sleep = 1;
+                            break;
+                        case Crafting_slot::GIVE: {
+                            auto const& w_item = get_by_id(world.items, cs.item.id);
+                            self(o_agent).load  -= w_item.volume * cs.item.amount;
+                            self(cs.agent).load += w_item.volume * cs.item.amount;
+                            get_by_id(self(o_agent).items, cs.item.id).amount -= cs.item.amount;
+                            if (auto cs_item = find_by_id(self(cs.agent).items, cs.item.id)) {
+                                cs_item->amount += cs.item.amount;
+                            } else {
+                                diff->add(self(cs.agent).items, cs.item);
+                            }
+                            d.task_sleep = 1;
+                            self(o_agent).task_state = 0xff;
+                            self(o_agent).task_sleep = 1;
+                        } break;
+                        case Crafting_slot::EXECUTE:
+                        default:
+                            assert(false); break;
+                        }
+                    }
                     return;
                 } else {
                     d.task_state = 0xfe;
@@ -804,7 +966,7 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
                     if (
                         o_agent != agent and (
                             o_t.task.type != Task::CRAFT_ASSIST
-                            or o_t.task.crafter != t.task.crafter
+                            or o_t.task.craft_id != t.task.craft_id
                             or o_d.task_state != 2
                         )
                     ) continue;
@@ -826,7 +988,7 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
             } else {
                 diff->add(d.items, t.task.item);
             }
-            d.load += item.volume;
+            d.load += item.volume * t.task.item.amount;
             
             for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
                 auto const& o_d = self(o_agent);
@@ -834,7 +996,7 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
                 auto const& o_t = task(o_agent);
                 if (
                     o_t.task.type != Task::CRAFT_ASSIST
-                    or o_t.task.crafter != t.task.crafter
+                    or o_t.task.craft_id != t.task.craft_id
                     or o_d.task_state != 2
                 ) continue;
                 self(o_agent).task_state = 0xff;
@@ -851,22 +1013,26 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
             d.task_sleep = 0xff;
             d.task_state = 2;
 
-            auto& c_s = self(t.task.crafter.id);
 
             bool found = false;
+            u8 o_agent;
             u8 i;
-            for (i = c_s.task_index; i < planning_max_tasks; ++i) {
-                auto const& o_t = strategy.task(t.task.crafter.id, i);
-                if (o_t.task.type == Task::CRAFT_ITEM and o_t.task.crafter == t.task.crafter) {
-                    found = true;
-                    break;
+            for (o_agent = 0; o_agent < number_of_agents; ++o_agent) {
+                for (i = self(o_agent).task_index; i < planning_max_tasks; ++i) {
+                    auto const& o_t = strategy.task(o_agent, i);
+                    if (o_t.task.type == Task::CRAFT_ITEM and o_t.task.craft_id == t.task.craft_id) {
+                        found = true;
+                        break;
+                    }
                 }
+                if (found) break;
             }
             if (not found) {
                 t.result.err = Task_result::NO_CRAFTER_FOUND;
                 d.task_state = 0xfe;
                 return;
             }
+            auto& c_s = self(o_agent);
             
             int have = 0;
             if (auto item = find_by_id(d.items, t.task.item.id)) {
@@ -1066,7 +1232,22 @@ void Simulation_state::fast_forward(int max_step) {
         for (u8 agent = 0; agent < number_of_agents; ++agent) {
             sleep_min = std::min(sleep_min, sit().self(agent).task_sleep);
         }
-
+        
+        diff.apply();
+        // If two items of the same type get added, things break. Only consider agents' inventories,
+        // as this is currently the only place this happens
+        for (u8 agent = 0; agent < number_of_agents; ++agent) {
+            auto& d = sit().self(agent);
+            for (u8 i = 0; i+1 < d.items.size(); ++i) {
+                for (u8 j = i+1; j < d.items.size(); ++j) {
+                    if (d.items[i].id == d.items[j].id) {
+                        d.items[i].amount += d.items[j].amount;
+                        d.items[j].id = 0;
+                        diff.remove(d.items, j);
+                    }
+                }
+            }
+        }
         diff.apply();
 
         // Update shops
@@ -1086,7 +1267,7 @@ void Simulation_state::fast_forward(int max_step) {
                 ++j;
             }
 
-            // @Incomplete If the shop does not have an item, there will be no entry to increment
+            // TODO: If the shop does not have an item, there will be no entry to increment
         }
         
         // sleep_min may be 0
@@ -1150,7 +1331,7 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
         index = before - 1;
     } else {
         index = before;
-        s.insert_task(agent, index, Task {0, 0, ++task_next_id});
+        s.insert_task(agent, index, Task {0, 0, ++s.task_next_id});
     }
 
     u8 from_id = index > 0
@@ -1159,23 +1340,12 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
     u8 to_id = index + 1 < planning_max_tasks
         ? s.task(agent, index + 1).task.where
         : from_id;
-    Pos from = index > 0
-        ? orig().find_pos(s.task(agent, index - 1).task.where)
-        : orig().self(agent).pos;
-    Pos to = index + 1 < planning_max_tasks
-        ? orig().find_pos(s.task(agent, index + 1).task.where)
-        : from;
     
-    auto from_g = world->graph->pos(from);
-    auto to_g   = world->graph->pos(to  );
-
     u16 min_dist = std::numeric_limits<u16>::max();
     u8 min_arg;
     for (auto& i: orig().charging_stations) {
-        auto pos_g = world->graph->pos(i.pos);
         u16 d = dist_cache.lookup_old(from_id, i.id) + dist_cache.lookup_old(i.id, to_id);
-        assert(d == (world->graph->dist_road(from_g, pos_g) / 1000 + world->graph->dist_road(pos_g, to_g) / 1000));
-        
+
         // TODO: Respect charging time
         
         if (d < min_dist) {
@@ -1184,43 +1354,7 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
         }
     }
     
-    s.task(agent, index).task = Task {Task::CHARGE, min_arg, ++task_next_id, {}};
-}
-
-s8 task_item_diff(World const& world, Task const& task, Task_result const& result, u8 item_id) {
-    if (task.type == Task::NONE or task.type == Task::CHARGE or task.type == Task::VISIT) {
-        return 0;
-    } else if (task.type == Task::BUY_ITEM) {
-        if (result.err or task.item.id != item_id) {
-            return 0;
-        } else {
-            return task.item.amount;
-        }
-    } else if (task.type == Task::CRAFT_ITEM or task.type == Task::CRAFT_ASSIST) {
-        if (result.err) { return 0; }
-        
-        if (task.item.id == item_id) {
-            return task.item.amount;
-        }
-        
-        // TODO: This does not look right, look into that
-        Item const& item = get_by_id(world.items, task.item.item);
-        for (Item_stack i: item.consumed) {
-            if (i.id == item_id) return - i.amount;
-        }
-        
-        return 0;
-    } else if (task.type == Task::DELIVER_ITEM) {
-        if (result.err) { return 0; }
-        
-        if (task.item.id == item_id) {
-            return -task.item.amount;
-        }
-        
-        return 0;
-    } else {
-        assert(false);
-    }
+    s.task(agent, index).task = Task {Task::CHARGE, min_arg, ++s.task_next_id, {}};
 }
 
 void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_item, bool for_tool) {
@@ -1282,7 +1416,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
                 if (
                     (s.task(agent, i).task.type == Task::CRAFT_ASSIST
                         or s.task(agent, i).task.type == Task::CRAFT_ITEM)
-                    and s.task(agent, i).task.crafter == t.task.crafter
+                    and s.task(agent, i).task.craft_id == t.task.craft_id
                 ) {
                     involved = true;
                     index = i;
@@ -1305,7 +1439,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         // Does the agent have the item already?
         u8 have = 0;
         if (auto item = find_by_id(sit().self(agent).items, for_item.id)) {
-            have = involved ? 0 : item->amount;
+            have = involved ? 0 : std::min(item->amount, for_item.amount);
         }
 
         // Fattening
@@ -1323,7 +1457,6 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
                     (u8)((world->roles[agent].load - max_load) / w_item.volume),
                     t_.result.left
                 );
-                fatten_amount = std::min(for_item.amount, fatten_amount);
                 if (fatten_amount) {
                     fatten_index = i;
                     break;
@@ -1332,7 +1465,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         }
 
         // Consider whether there are enough slots
-        u8 idling = fast_forward_steps - sit().last_time(agent);
+        u8 idling = sit().simulation_step - last_time(agent);
         bool idleflag = idling > max_idle_time;
         bool slots_1 = task_count < planning_max_tasks - (not involved)     and idleflag;
         bool slots_2 = task_count < planning_max_tasks - (not involved) + 1 and idleflag;
@@ -1350,31 +1483,30 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         }
         if (carryable >= for_item.amount) {
             rating += rate_additem_carryall;
-        } else {
-            for_item.amount = carryable;
         }
+        u8 final_amount = std::min((u8)(for_item.amount - have), carryable);
 
         if (slots_1 and have > 0) { // Note that this may not be enough items
             viables[viable_count++] = {
-                (u8)(rating + rate_additem_inventory), agent, index, Viable_t::ONLY_MOVE, involved
+                (u8)(rating + rate_additem_inventory), agent, index, Viable_t::ONLY_MOVE, involved, have
             };
         }
         if (slots_1 and in_shops and have < for_item.amount) {
             viables[viable_count++] = {
-                (u8)(rating + rate_additem_shop), agent, index, Viable_t::BUY, involved,
-                (u8)(for_item.amount - have)
+                (u8)(rating + rate_additem_shop), agent, index, Viable_t::BUY,
+                involved, final_amount
             };
         }
         if (slots_1 and may_craft and have < for_item.amount) {
             viables[viable_count++] = {
-                (u8)(rating + rate_additem_crafting), agent, index, Viable_t::CRAFT, involved,
-                (u8)(for_item.amount - have)
+                (u8)(rating + rate_additem_crafting), agent, index, Viable_t::CRAFT,
+                involved, final_amount
             };
         }
         if (slots_2 and fatten_amount > 0 and have < for_item.amount) { // Note that this may not be enough items
             viables[viable_count++] = {
                 (u8)(rating + rate_additem_fatten), agent, fatten_index, Viable_t::FATTEN, involved,
-                (u8)(fatten_amount - have)
+                std::min(fatten_amount, (u8)(for_item.amount - have))
             };
         }
     }
@@ -1389,6 +1521,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
     
     u8 agent = way->agent;
     u8 index = way->index;
+    for_item.amount = way->amount;
 
     // Add the tail
     if (not way->no_tail) {
@@ -1399,7 +1532,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         // If there is an error, insert the task in front, to prevent deadlocks
         auto& d = sit().self(agent);
         if (d.task_index and (sit().strategy.task(agent, d.task_index - 1).result.err
-            or sit().last_time(agent) == fast_forward_steps))
+            or last_time(agent) == sit().simulation_step))
         {
             tail_index = d.task_index - 1;
         } else {
@@ -1409,18 +1542,22 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         if (is_deliver) {
             // If it's a delivery, move the task over
             Task new_task = s.pop_task(for_agent, for_index);
-            new_task.id = ++task_next_id;
+            new_task.id = ++s.task_next_id;
             s.insert_task(agent, tail_index, new_task);
         } else {
             s.insert_task(agent, tail_index, Task {
                 Task::CRAFT_ASSIST,
                 s.task(for_agent, for_index).task.where,
-                ++task_next_id,
+                ++s.task_next_id,
                 for_item,
-                {},
+                s.task(for_agent, for_index).task.craft_id,
                 s.task(for_agent, for_index).task.item.amount
             });
-            s.task(agent, tail_index).task.crafter = s.task(for_agent, for_index).task.crafter;
+        }
+    } else {
+        if (is_deliver and for_agent != agent) {
+            // If it's a delivery, delete the old task
+            s.pop_task(for_agent, for_index);
         }
     }
     
@@ -1433,17 +1570,15 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
     if (way->type == Viable_t::ONLY_MOVE) {
         // nothing
     } else if (way->type == Viable_t::BUY) {
-        for_item.amount = way->amount;
         u16 min_dist = std::numeric_limits<u32>::max();
         u8 min_arg = 0;
         for (auto const& i: orig().shops) {
-            if (auto j = find_by_id(i.items, for_item.id)) {
-                if (j->amount < for_item.amount) continue;
-            } else {
-                continue;
-            }
+            auto j = find_by_id(i.items, for_item.id);
+            if (not j or j->amount < for_item.amount) continue;
             
             u16 d = dist_cache.lookup_old(from_id, i.id) + dist_cache.lookup_old(i.id, to_id);
+            d = d / dist_price_fac + j->cost * for_item.amount;
+            //d += j->cost * for_item.amount * 10;
             
             // TODO: Respect costs
         
@@ -1454,9 +1589,8 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         }
         assert(min_arg != 0);
 
-        s.insert_task(agent, index, Task {Task::BUY_ITEM, min_arg, ++task_next_id, for_item});
+        s.insert_task(agent, index, Task {Task::BUY_ITEM, min_arg, ++s.task_next_id, for_item});
     } else if (way->type == Viable_t::CRAFT) {
-        for_item.amount = way->amount;
         Pos from = index > 0
             ? orig().find_pos(s.task(agent, index - 1).task.where)
             : orig().self(agent).pos;
@@ -1474,12 +1608,11 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         }
         assert(min_arg != 0);
 
-        s.insert_task(agent, index, Task {Task::CRAFT_ITEM, min_arg, ++task_next_id, for_item, agent});
-        s.task(agent, index).task.crafter.id = agent;
-        s.task(agent, index).task.crafter.check = (u8)(rng.rand() & 0xff);
+        u16 id = ++s.task_next_id;
+        s.insert_task(agent, index, Task {Task::CRAFT_ITEM, min_arg, id, for_item, id});
     } else if (way->type == Viable_t::FATTEN) {
         s.task(agent, index).task.item.amount += way->amount;
-        s.task(agent, index).task.id = ++task_next_id;
+        s.task(agent, index).task.id = ++s.task_next_id;
     } else {
         assert(false);
     }
@@ -1528,9 +1661,7 @@ void Strategy::insert_task(u8 agent, u8 index, Task task_) {
 }
 
 void Simulation_state::fix_errors() {
-    // For debugging purposes
-    u64 state = rng.rand_state;
-    
+    //debug_flag = orig().strategy.s_id == 7745 or orig().strategy.s_id == 7743;
     for (int it = 0; it < fixer_iterations; ++it) {
         reset();
         fast_forward();
@@ -1552,7 +1683,7 @@ void Simulation_state::fix_errors() {
             }
 
             auto& ot = orig().strategy.task(agent, index);
-            u16 index_diff = task_next_id - ot.task.id;
+            u16 index_diff = orig().strategy.task_next_id + (u16)(-ot.task.id);
             if (index_diff < value) {
                 best_agent = agent;
                 value = index_diff;
@@ -1600,22 +1731,134 @@ void Simulation_state::fix_errors() {
             
             JDBG_D < it < agent < index < r ,0;
         } else {
-            // Detect deadlock
-            int count = 0;
-            for (u8 agent = 0; agent < number_of_agents; ++agent) {
-                count += sit().last_time(agent) == fast_forward_steps;
-            }
-            if (count >= 2) {
-                JDBG_L < "We seem to have a deadlock. Oh my!" < count < orig().simulation_step < state ,0;
-                JDBG_L < sit().strategy.p_results() ,1;
-                JDBG_L < orig().strategy.p_tasks() ,0;
-                die(false);
-            }
-            
+            if (not fix_deadlock()) break;
+
             //jdbg < "NOERR" < it ,0;
-            break;
         }
     }
+}
+    
+bool Simulation_state::fix_deadlock() {
+    // Detect deadlock
+    struct Edge_t {
+        u8 a, b;
+        u16 task_id;
+    };
+    struct Node_t {
+        u16 id;
+        u8 in, out;
+        bool invalid;
+    };
+
+    u8 max_nodes = narrow<u8>(number_of_agents * planning_max_tasks);
+    Array_view_mut<Node_t> nodes {(Node_t*)alloca(max_nodes * sizeof(Node_t)), max_nodes};
+    std::memset(nodes.begin(), 0, nodes.as_bytes().size());
+    u8 node_count = 0;
+
+    u8 max_edges = narrow<u8>(number_of_agents * (planning_max_tasks - 1));
+    Array_view_mut<Edge_t> edges {(Edge_t*)alloca(max_nodes * sizeof(Edge_t)), max_edges};
+    u8 edge_count = 0;
+
+    // Build the dependency graph
+    for (u8 agent = 0; agent < number_of_agents; ++agent) {
+        u8 last_node = 0xff;
+        u16 last_edge_id;
+        for (u8 i = 0; i < planning_max_tasks; ++i) {
+            auto& o_t = orig().strategy.task(agent, i);
+            auto& s_t = sit().strategy.task(agent, i);
+            if (o_t.task.type != Task::CRAFT_ITEM and o_t.task.type != Task::CRAFT_ASSIST) {
+                continue;
+            }
+            if (s_t.result.time < sim_time() and i < sit().self(agent).task_index) continue;
+
+            u8 index;
+            if (auto node = find_by_id(nodes, o_t.task.craft_id)) {
+                index = node - nodes.begin();
+            } else {
+                index = node_count++;
+                nodes[index] = {o_t.task.craft_id, 0, 0, false};
+            }
+            if (last_node != 0xff) {
+                edges[edge_count++] = {last_node, index, last_edge_id};
+                ++nodes[last_node].out;
+                ++nodes[index].in;
+            }
+            last_node = index;
+            last_edge_id = o_t.task.id;
+        }
+    }
+
+    nodes = {nodes.begin(), node_count};
+    edges = {edges.begin(), edge_count};
+
+    //for (auto i: nodes) { JDBG_L < i.id < i.in < i.out < i.invalid ,0; }
+    //for (auto i: edges) { JDBG_L < i.a < i.b < i.task_id ,0; }
+
+    // Remove all nodes with out-degree or in-degree 0
+    while (true) {
+        u8 index = 0xff;
+        for (u8 i = 0; i < node_count; ++i) {
+            if (not nodes[i].invalid and (nodes[i].in == 0 or nodes[i].out == 0)) {
+                index = i;
+                break;
+            }
+        }
+        if (index == 0xff) break;
+
+        for (auto e: edges) {
+            nodes[e.a].out -= e.b == index;
+            nodes[e.b].in  -= e.a == index;
+        }
+        nodes[index].invalid = true;
+    }
+    
+    // Choose the edge with the newest task_id
+    u16 task_id;
+    u16 diff_value = std::numeric_limits<u16>::max();
+    bool found = false;
+    for (auto e: edges) {
+        if (nodes[e.a].invalid or nodes[e.b].invalid) continue;
+
+        u16 index_diff = orig().strategy.task_next_id + (u16)(-e.task_id);
+        if (index_diff <= diff_value) {
+            task_id = e.task_id;
+            diff_value = index_diff;
+            found = true;
+        }
+    }
+
+    // There is no deadlock
+    if (not found) return false;
+
+    // Find the slot
+    u8 agent, index;
+    for (agent = 0; agent < number_of_agents; ++agent) {
+        for (index = 0; index < planning_max_tasks; ++index) {
+            if (orig().strategy.task(agent, index).task.id == task_id) break;
+        }
+        if (index < planning_max_tasks) break;
+    }
+    assert(agent != number_of_agents);
+
+    // Move the associated task behind all other tasks that are in the circle and update their ids
+    u8 to_index = 0xff;
+    for (u8 i = index + 1; i < planning_max_tasks; ++i) {
+        auto& o_t = orig().strategy.task(agent, i);
+        if (o_t.task.type != Task::CRAFT_ITEM and o_t.task.type != Task::CRAFT_ASSIST) {
+            continue;
+        }
+        if (auto node = find_by_id(nodes, o_t.task.craft_id)) {
+            if (not node->invalid) {
+                to_index = i;
+                o_t.task.id = ++orig().strategy.task_next_id;
+            }
+        }
+    }
+
+    Task t = orig().strategy.pop_task(agent, index);
+    orig().strategy.insert_task(agent, to_index, t);
+
+    return true;
 }
 
 void Simulation_state::create_work() {
@@ -1632,13 +1875,14 @@ void Simulation_state::create_work() {
         if (d.task_index == 0) {
             viable_agents[viable_agents_count++] = agent;
         } else {
-            if (sit().last_time(agent) < fast_forward_steps - max_idle_time
+            if (last_time(agent) < sit().simulation_step - max_idle_time
                 and d.task_index + 1 < planning_max_tasks)
             {
                 viable_agents[viable_agents_count++] = agent;
             }
         }
     }
+    if (viable_agents_count == 0) return;
 
     bool has_err = false;
     for (u8 agent = 0; agent < number_of_agents; ++agent) {
@@ -1664,6 +1908,9 @@ void Simulation_state::create_work() {
                 auto const& t = sit().strategy.task(agent, i);
                 started |= t.task.type == Task::DELIVER_ITEM and t.task.job_id == job.id;
             }
+        }
+        for (auto i: sit().book.delivered) {
+            started |= i.job_id == job.id;
         }
         if (not started and job.required.size()+2 > viable_agents_count) return;
 
@@ -1704,17 +1951,31 @@ void Simulation_state::create_work() {
         u8 job_type;
         Job const& job = sit().get_by_id_job(job_id, &job_type);
 
-        for (auto const& i: job.required) {
-            if (viable_agents_count <= 1) break;
-                
+        for (auto i: job.required) {
+            // Make i a copy, to be able to modify it
+            
+            //if (viable_agents_count <= 1) break;
+
+            u8 already = 0;
+            for (auto j: sit().book.delivered) {
+                if (j.job_id == job.id and j.item.id == i.id) {
+                    already = j.item.amount;
+                    break;
+                }
+            }
+            if (already >= i.amount) continue;
+            i.amount -= already;
+            
             // TODO: more intelligent agent dispatch, to save add_item_for some work
             int agent_index = rng.gen_uni(viable_agents_count);
             u8 agent = viable_agents[agent_index];
             viable_agents[agent_index] = viable_agents[--viable_agents_count];
 
             s.task(agent, sit().self(agent).task_index).task = Task {
-                Task::DELIVER_ITEM, job.storage, ++task_next_id, i, job.id
+                Task::DELIVER_ITEM, job.storage, ++s.task_next_id, i, job.id
             };
+            
+            break; // Only one item at a time
         }
     } else {
         // Add an item
@@ -1765,7 +2026,7 @@ void Simulation_state::optimize() {
         auto& s = orig().strategy;
         for (u8 agent = 0; agent < number_of_agents; ++agent) {
             auto& d = sit().self(agent);
-            if (sit().last_time(agent) == fast_forward_steps) continue;
+            if (last_time(agent) == sit().simulation_step) continue;
             if (d.task_index and sit().strategy.task(agent, d.task_index - 1).result.err) continue;
             
             for (auto const& item: d.items) {
@@ -1805,6 +2066,8 @@ float Simulation_state::rate() {
             item_rating += get_by_id(world->item_costs, i.id).value() * i.amount;
         }
     }
+    //float fadeoff = std::min(1.f, (world->steps - sit().simulation_step) / rate_fadeoff);
+    //rating += item_rating * rate_val_item * fadeoff;
     rating += item_rating * rate_val_item;
 
     return rating;

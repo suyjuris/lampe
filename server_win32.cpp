@@ -396,7 +396,7 @@ void Server::run_simulation() {
             }
 
             if (not options.use_internal_server or options.massim_quiet) {
-                jout << "Currently in step " << step + 1 << '\n';
+                jout << "Currently in step " << step << '\n';
                 jout.flush();
             }
         

@@ -41,7 +41,9 @@ constexpr float rate_job_profit  = 0.05f;
 constexpr u8 fixer_it_limit = 5;
 
 constexpr float rate_val_item  = 1.0f;
+constexpr float rate_fadeoff   = 40;
 
+constexpr int dist_price_fac = 1000;
 
 
 struct Task {
@@ -63,7 +65,7 @@ struct Task {
     Item_stack item;
     union {
         u16 job_id;
-        Craft_id_t crafter;
+        u16 craft_id; // NOTE THAT craft_id OF THE CRAFTER AND ITS id ARE NOT NECESSARILY THE SAME!
     };
     u8 cnt;
     u8 fixer_it;
@@ -156,6 +158,9 @@ struct Partial_viewer_task_result {
 
 struct Strategy {
     Task_slot m_tasks[number_of_agents * planning_max_tasks] = {0};
+    u32 s_id = 0; // Can't call it id because of hacks in the debug.hpp implementation
+    u32 parent = 0;
+    u16 task_next_id = 0;
 
     Task_slot& task(u8 agent, u8 index) {
         assert(0 <= agent and agent < number_of_agents);
@@ -189,6 +194,25 @@ struct Self_sim: Self {
     u8 task_index;
     u8 task_state;
     u8 task_sleep;
+};
+
+struct Crafting_slot {
+    enum Type: u8 {
+        UNINVOLVED = 0, IDLE, EXECUTE, GIVE, USELESS, RECEIVE
+    };
+
+    u8 type;
+    u8 agent;
+    Item_stack item;
+    u16 extra_load;
+};
+
+struct Crafting_plan {
+    Crafting_slot slots[number_of_agents];
+    auto& slot(u8 i) {
+        assert(0 <= i and i < number_of_agents);
+        return slots[i];
+    }
 };
 
 // Fully describes the dynamic data of the world. Effectively combines Percept's
@@ -231,13 +255,6 @@ public:
         assert(0 <= agent and agent < number_of_agents);
         return strategy.task(agent, selves[agent].task_index);
     }
-    u8 last_time(u8 agent) const {
-        if (selves[agent].task_index == 0) {
-            return 0;
-        } else {
-            return strategy.task(agent, selves[agent].task_index - 1).result.time;
-        }
-    }
 
     Situation() {}
     Situation(Percept const& p0, Situation const* sit_old /* = nullptr */, Buffer* containing);
@@ -245,8 +262,9 @@ public:
     void register_arr(Diff_flat_arrays* diff);
 
     void flush_old(World const& world, Situation const& old, Diff_flat_arrays* diff);
-    void get_action(World const& world, Situation const& old, u8 agent,
-        Buffer* into /*= nullptr*/, Diff_flat_arrays* diff);
+    void moving_on(World const& world, Situation const& old, Diff_flat_arrays* diff);
+    bool moving_on_one(World const& world, Situation const& old, Diff_flat_arrays* diff);
+    void get_action(World const& world, Situation const& old, u8 agent, Crafting_slot const& cs, Buffer* into);
 
     u16 agent_dist(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id);
     void agent_goto_nl(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id);
@@ -255,7 +273,11 @@ public:
     bool agent_goto(u8 where, u8 agent, Buffer* into);
 
     Pos find_pos(u8 id) const;
-    
+    bool is_possible_item(World const& world, u8 agent, Task_slot& t, Item_stack i, bool is_tool, bool at_all,
+        Crafting_plan* plan = nullptr);
+    Crafting_plan crafting_orchestrator(World const& world, u8 agent);
+    Crafting_plan combined_plan(World const& world);
+
     Job* find_by_id_job(u16 id, u8* type = nullptr);
     Job& get_by_id_job(u16 id, u8* type = nullptr);
 };
@@ -266,8 +288,6 @@ public:
     Diff_flat_arrays diff;
     Rng rng;
     Dist_cache dist_cache;
-
-    u16 task_next_id = 0;
     
     int orig_offset, orig_size;
     int sit_offset;
@@ -292,37 +312,36 @@ public:
     void create_work();
     void optimize();
     float rate();
+    bool fix_deadlock();
 
     void remove_task(u8 agent, u8 index);
     void reduce_load(u8 agent, u8 index);
     void reduce_buy(u8 agent, u8 index, Item_stack arg);
     void reduce_assist(u8 agent, u8 index, Item_stack arg);
     void add_item_for(u8 for_agent, u8 for_index, Item_stack for_item, bool for_tool);
+
+    u8 sim_time() { return (u8)(sit().simulation_step - orig().simulation_step); }
+    int last_time(u8 agent) {
+        if (sit().self(agent).task_index == 0) {
+            return orig().simulation_step;
+        } else {
+            auto const& t = sit().strategy.task(agent, sit().self(agent).task_index - 1);
+            return orig().simulation_step + t.result.time;
+        }
+    }
 };
 
-template <typename T, typename Id = decltype(T().id)>
-T const& get_by_id(Flat_array<T> const& arr, Id id) {
-    for (T const& i: arr) {
-        if (i.id == id) return i;
-    }
-    assert(false);
-}
-template <typename T, typename Id = decltype(T().id)>
-T const* find_by_id(Flat_array<T> const& arr, Id id) {
-    for (T const& i: arr) {
-        if (i.id == id) return &i;
-    }
-    return nullptr;
-}
-template <typename T, typename Id = decltype(T().id)>
-T& get_by_id(Flat_array<T>& arr, Id id) {
+template <typename Range, typename T = std::remove_reference_t<decltype(*std::declval<Range>().begin())>,
+    typename Id = decltype(std::declval<T>().id)>
+T& get_by_id(Range& arr, Id id) {
     for (T& i: arr) {
         if (i.id == id) return i;
     }
     assert(false);
 }
-template <typename T, typename Id = decltype(T().id)>
-T* find_by_id(Flat_array<T>& arr, Id id) {
+template <typename Range, typename T = std::remove_reference_t<decltype(*std::declval<Range>().begin())>,
+    typename Id = decltype(std::declval<T>().id)>
+T* find_by_id(Range& arr, Id id) {
     for (T& i: arr) {
         if (i.id == id) return &i;
     }

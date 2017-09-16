@@ -214,7 +214,7 @@ inline Debug_ostream& operator> (Debug_ostream& out, jup_str s) {
     return out;
 }
 inline Debug_ostream& operator< (Debug_ostream& out, double d) {
-	return out.printf("%.2e ", d);
+	return out.printf("%.4e ", d);
 }
 inline Debug_ostream& operator< (Debug_ostream& out, float f) {
     return out < (double)f;
@@ -355,6 +355,9 @@ jup_str diff_obj_prefix(T const& obj, char const* prefix) {
 template <typename T, typename std::enable_if<not Type_has_id<T>::value, int>::type = 0>
 jup_str diff_obj_prefix(T const& obj, char const* prefix) {
     return jup_printf("%s {", prefix);
+}
+inline jup_str diff_obj_prefix(Task const& t, char const* prefix) {
+    return jup_printf("%s {id = \"%d\", ", prefix, (int)t.id);
 }
 
 template <typename T>
@@ -518,7 +521,7 @@ op(Resource_node, id(name), resource, pos)
 op(Percept, deadline, id, simulation_step, team_money, self, entities, charging_stations, dumps,
     shops, storages, workshops, resource_nodes, auctions, jobs, missions, posteds)
 
-op(Task, type, id(where), id, item, job_id, crafter.id, cnt, fixer_it)
+op(Task, type, id(where), id, item, job_id, cnt, fixer_it)
 op(Task_result, time, err, err_arg)
 op(Shop_limit, id(shop), item)
 op(Item_cost, id(id), count, sum)
@@ -527,6 +530,8 @@ op(Job_item, id16(job_id), item)
 op(Bookkeeping, delivered)
 op(Task_slot, task, result)
 op(Strategy, m_tasks)
+op(Crafting_slot, type, agent, item, extra_load)
+op(Crafting_plan, slots)
 op(Self_sim, id(name), team, pos, role, charge, load, id(facility), action_name(action_type),
     action_result_name(action_result), task_index, task_state, task_sleep, items)
 op(Situation, simulation_step, team_money, selves, entities, charging_stations, dumps, shops,

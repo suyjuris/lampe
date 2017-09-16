@@ -41,6 +41,11 @@ void Mothership_complex::pre_request_action(u8 agent, Percept const& perc, int p
 }
 
 void Mothership_complex::on_request_action() {
+    auto strategy_gen_id = [this](Strategy_slot& s) {
+        s.strategy.parent = s.strategy.s_id;
+        s.strategy.s_id = ++strategy_next_id;
+    };
+    
     world().step_post(&world_buffer);
     
     sit_diff.init(&sit_buffer);
@@ -51,6 +56,7 @@ void Mothership_complex::on_request_action() {
     sit().flush_old(world(), *old, &sit_diff);
     sit_diff.apply();
 
+    // Initialize with the strategy used in the last step
     sim_buffer.reset();
     sim_buffer.append(sit_buffer);
     sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
@@ -61,6 +67,7 @@ void Mothership_complex::on_request_action() {
     strategies[0].rating = sim_state.rate();
     strategies[0].rating_sum = strategies[0].rating;
     strategies[0].visited = 1;
+    strategy_gen_id(strategies[0]);
 
     while (strategies.size() < max_strategy_count) {
         // Choose the strategy to explore
@@ -69,6 +76,7 @@ void Mothership_complex::on_request_action() {
         for (int i_it = 0; i_it < strategies.size(); ++i_it) {
             auto const& i = strategies[i_it];
             float value = i.rating_sum / i.visited / search_rating_max;
+            //JDBG_L < value < search_exploration * std::sqrt(2*std::log(strategies.size()) / i.visited) ,0;
             value += search_exploration * std::sqrt(2*std::log(strategies.size()) / i.visited);
             if (value > best_value) {
                 best_arg = i_it;
@@ -90,6 +98,7 @@ void Mothership_complex::on_request_action() {
         strategies[index].rating = sim_state.rate();
         strategies[index].rating_sum = strategies[index].rating;
         strategies[index].visited = 1;
+        strategy_gen_id(strategies[index]);
         
         strategies[best_arg].rating_sum += strategies[index].rating;
         strategies[best_arg].visited += 1;
@@ -108,7 +117,12 @@ void Mothership_complex::on_request_action() {
     
     std::memcpy(&sit().strategy, &strategies[best_arg].strategy, sizeof(Strategy));
 
-    JDBG_L < sit().strategy.p_tasks() ,0;
+    
+    std::memcpy(&sim_state.orig().strategy, &strategies[best_arg].strategy, sizeof(Strategy));
+    sim_state.reset();
+    sim_state.fast_forward();
+    JDBG_L < sim_state.sit().strategy.p_results() ,1;
+    JDBG_L < sim_state.orig().strategy.p_tasks() ,0;
     
     /*if (sit().simulation_step == 30) {
         die(false);
@@ -164,12 +178,13 @@ void Mothership_complex::on_request_action() {
         }*/
     
     std::memcpy(&sit().strategy, &sim_state.sit().strategy, sizeof(sit().strategy));
+
+    crafting_plan = sit().combined_plan(world());
 }
 
 void Mothership_complex::post_request_action(u8 agent, Buffer* into) {
     Situation* old = sit().simulation_step == 0 ? &sit() : &sit_old();
-    sit().get_action(world(), *old, agent, into, &sit_diff);
-    sit_diff.apply();
+    sit().get_action(world(), *old, agent, crafting_plan.slot(agent), into);
 }
 
 

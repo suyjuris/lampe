@@ -42,7 +42,7 @@ struct Role {
 struct Action {
 	// THESE MUST BE IN THE SAME ORDER!!!
 	enum Action_type: u8 {
-		GOTO, GIVE, RECIEVE, STORE, RETRIEVE, RETRIEVE_DELIVERED,
+		GOTO, GIVE, RECEIVE, STORE, RETRIEVE, RETRIEVE_DELIVERED,
 		ASSEMBLE, ASSIST_ASSEMBLE, BUY, DELIVER_JOB, BID_FOR_JOB,
 		POST_JOB, DUMP, CHARGE, RECHARGE, CONTINUE, SKIP, ABORT,
 		UNKNOWN_ACTION, RANDOM_FAIL, NO_ACTION, GATHER, GOTO0, GOTO1, GOTO2
@@ -143,8 +143,8 @@ struct Action_Give: Action {
 	Item_stack item;
 };
 
-struct Action_Recieve: Action {
-	Action_Recieve(): Action{RECIEVE} {}
+struct Action_Receive: Action {
+	Action_Receive(): Action{RECEIVE} {}
 };
 
 struct Action_Store: Action {

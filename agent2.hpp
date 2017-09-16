@@ -10,8 +10,7 @@ namespace jup {
 constexpr int max_strategy_count = 32;
 
 constexpr float search_rating_max  = 5e5;
-constexpr float search_exploration = 1.f;
-
+constexpr float search_exploration = 0.01f;
 
 struct Strategy_slot {
     Strategy strategy;
@@ -39,7 +38,9 @@ struct Mothership_complex : Mothership {
     Simulation_state sim_state;
     Diff_flat_arrays sit_diff;
     Graph* graph;
+    Crafting_plan crafting_plan;
 
+    u32 strategy_next_id = 0;
     Array<Strategy_slot> strategies;
     Buffer_guard strategies_guard;
 };

@@ -64,6 +64,7 @@ struct Mothership_test2 : Mothership {
     auto& sit() { return sit_buffer.get<Situation>(0); }
     auto& sit_old() { return sit_old_buffer.get<Situation>(0); }
     
+    Crafting_plan crafting_plan;
     Buffer world_buffer;
     Buffer sit_buffer;
     Buffer sit_old_buffer;

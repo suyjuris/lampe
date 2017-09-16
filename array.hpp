@@ -177,7 +177,7 @@ struct Array_view_mut {
 	
 	Array_view_mut(std::vector<T>& vec):
 		Buffer_view{vec.data(), (int)(vec.size())} {}
-	
+
 	int size() const { return m_size; }
 	
 	T* begin() { return m_data; }
@@ -198,7 +198,7 @@ struct Array_view_mut {
     }
     
     Buffer_view as_bytes() const {
-        return {data(), size() * sizeof(T)};
+        return {data(), narrow<int>(size() * sizeof(T))};
     }
 
 	u32 get_hash() const {

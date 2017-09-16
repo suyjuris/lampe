@@ -497,7 +497,7 @@ struct Diff_flat_arrays_base {
         u8 size_index;
     };
     enum Type : u8 {
-        ADD, REMOVE
+        ADD, REMOVE, REMOVE_IGNORE
     };
 
     Buffer* container = nullptr;
@@ -518,6 +518,10 @@ struct Diff_flat_arrays_base {
     void register_arr(Flat_array_t const& arr, char const* name = nullptr) {
         assert(container);
         refs().push_back(Flat_array_ref {arr, name, *container}, &diffs);
+        _first = std::numeric_limits<int>::max();
+    }
+
+    void register_commit() {
         std::sort(refs().begin(), refs().end(), [this](Flat_array_ref a, Flat_array_ref b) {
             return a.last_byte(*container) < b.last_byte(*container);
         });
@@ -538,7 +542,7 @@ struct Diff_flat_arrays_base {
         u8 type = diffs[*offset];
         if (type == ADD) {
             *offset += 2 + refs()[diffs[*offset+1]].element_size;
-        } else if (type == REMOVE) {
+        } else if (type == REMOVE or type == REMOVE_IGNORE) {
             *offset += 3;
         } else {
             assert(false);
@@ -598,6 +602,8 @@ struct Diff_flat_arrays_base {
         for (int i = first(); i; next(&i)) {
             u8 type = diffs[i];
             u8 ref  = diffs[i+1];
+            if (type == REMOVE_IGNORE) continue;
+            
             int adjust = refs()[ref].element_size * ((type == ADD) - (type == REMOVE));
             int remove_off = type == REMOVE ? - (refs()[ref].ref(*container).size()-1
                 - diffs[i+2] ) * refs()[ref].element_size : 0;
@@ -609,8 +615,11 @@ struct Diff_flat_arrays_base {
                 int k = i;
                 for (next(&k); k; next(&k)) {
                     if (diffs[k] == REMOVE and diffs[k+1] == ref) {
-                        assert(diffs[k+2] != diffs[i+2]);
-                        diffs[k+2] -= diffs[k+2] > diffs[i+2];
+                        if (diffs[k+2] == diffs[i+2]) {
+                            diffs[k] = REMOVE_IGNORE;
+                        } else {
+                            diffs[k+2] -= diffs[k+2] > diffs[i+2];
+                        }
                     }
                 }
                 assert(diffs[i+2] < refs()[ref].ref(*container).size());

@@ -702,7 +702,7 @@ void send_message(Socket& sock, Message_Action const& mess) {
 		switch (mess.action->type) {
 		case Action::GIVE: {
 			cast(Action_Give);
-			next_arg = a.agent;
+			next_arg = get_string_from_id(a.agent).c_str();
 			next_arg = get_string_from_id(a.item.id).c_str();
 			next_arg = a.item.amount;
 		} break;
@@ -746,7 +746,7 @@ void send_message(Socket& sock, Message_Action const& mess) {
 			next_arg = back.first;
 			next_arg = back.second;
 		} break;
-		case Action::RECIEVE:
+		case Action::RECEIVE:
 		case Action::CHARGE:
 		case Action::RECHARGE:
 		case Action::CONTINUE:

@@ -301,6 +301,11 @@ void Mothership_test2::on_request_action() {
     sit_diff.init(&sit_buffer);
     sit().register_arr(&sit_diff);
     
+    // Flush all the old tasks out
+    Situation* old = sit_old_buffer.size() ? &sit_old_buffer.get<Situation>() : nullptr;
+    sit().flush_old(world(), *old, &sit_diff);
+    sit_diff.apply();
+    
     if (sit().simulation_step > 0) {
         //jdbg_diff(sit_old(), sit());
     }
@@ -320,14 +325,15 @@ void Mothership_test2::on_request_action() {
     }
 #else
     if (sit().simulation_step == 0) {
-        sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 1,
-            Item_stack {get_id_from_string("item10"), 1}, 2296};
-        sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 2,
-            Item_stack {get_id_from_string("item11"), 1}, 2296};
-        sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 3,
-            Item_stack {get_id_from_string("item14"), 1}, 2296};
-        sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 4,
-            Item_stack {get_id_from_string("item9" ), 1}, 2296};
+        /*sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 4,
+          Item_stack {get_id_from_string("item10"), 1}, 3393};*/
+        sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 3,
+            Item_stack {get_id_from_string("item11"), 1}, 3393};
+        sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 2,
+            Item_stack {get_id_from_string("item14"), 1}, 3393};
+        sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 1,
+        Item_stack {get_id_from_string("item9" ), 1}, 3393};
+        sit().strategy.task_next_id = 3;
         
         sim_buffer.reset();
         sim_buffer.append(sit_buffer);
@@ -358,12 +364,15 @@ void Mothership_test2::on_request_action() {
         //jdbg_diff(sit(), sim_state.sit());
         die(false);
     }
+
+    crafting_plan = sit().combined_plan(world());
+    
+    //JDBG_L < sit() ,0;
 }
 
 void Mothership_test2::post_request_action(u8 agent, Buffer* into) {
     Situation* old = sit().simulation_step == 0 ? &sit() : &sit_old();
-    sit().get_action(world(), *old, agent, into, &sit_diff);
-    sit_diff.apply();
+    sit().get_action(world(), *old, agent, crafting_plan.slot(agent), into);
 }
 
 
