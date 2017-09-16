@@ -1,6 +1,7 @@
 
 #include "objects.hpp"
 #include "graph.hpp"
+#include <stack>
 
 namespace jup {
 
@@ -230,104 +231,6 @@ Graph_position Graph::pos(Pos const pos) const {
 	}
 }
 
-#if 0
-u32 Graph::dist_road(Graph_position s, Graph_position t, Buffer* into) const {
-	// unidirectional
-	if (s.edge_pos and t.edge_pos and s.id == t.id) {
-		auto& edge = edges()[s.id];
-		if (((s.edge_pos <= t.edge_pos) and (edge.flags & 1)) or ((s.edge_pos >= t.edge_pos) and (edge.flags & 2)))
-			return abs(s.get_edge_pos() - t.get_edge_pos()) * edges()[s.id].dist;
-	}
-
-	constexpr auto const dist_invalid = std::numeric_limits<u32>::max();
-	// underestimate rounding error correction
-	constexpr auto const dist_margin = 1000.f;
-
-	auto spos = s.pos(*this);
-	auto estimate = [this, spos](u32 const node) -> u32 {
-		assert(node != node_invalid);
-		float d = dist_air(spos, nodes()[node].pos) * 1000.f - dist_margin;
-		if (d < 0) return 0;
-		assert(d <= std::numeric_limits<u32>::max());
-		return (u32)d;
-	};
-	auto nnodes = nodes().size();
-	// upper bounds for node distances
-	auto dist = std::make_unique<u32[]>(nnodes);
-	auto next = std::make_unique<u32[]>(nnodes);
-	for (auto i = std::numeric_limits<u32>::min(); i < nnodes; ++i) {
-		dist[i] = dist_invalid;
-		next[i] = edge_invalid;
-	}
-
-	auto ring = std::set<std::pair<u32, u32>>();
-	if (t.edge_pos) {
-		auto const& et = edges()[t.id];
-		if (et.flags & 1) ring.insert({ (dist[et.nodea] = (u32)(t.get_edge_pos() * et.dist)) + estimate(et.nodea), et.nodea });
-		if (et.flags & 2) ring.insert({ (dist[et.nodeb] = (u32)((1.f - t.get_edge_pos()) * et.dist)) + estimate(et.nodeb), et.nodeb });
-	} else {
-		dist[t.id] = 0;
-		ring.insert({ estimate(t.id), t.id });
-	}
-
-	u32 firstnode = node_invalid, r;
-	for (auto el = ring.begin(); el != ring.end(); el = ring.begin()) {
-		auto node = el->second;
-		if (s.is_node() and s.id == node) {
-			firstnode = node;
-			r = dist[node];
-			break;
-		}
-		auto const& range = nodes()[node].iter(*this);
-		for (auto it = range.begin(); it != range.end(); ++it) {
-			// skip misaligned one-way streets
-			u32 flags = edges()[it.edge].flags;
-			if (it.is_nodea and (flags & 2) == 0) continue;
-			if (!it.is_nodea and (flags & 1) == 0) continue;
-
-			if (s.is_edge() and s.id == it.edge) {
-				double d = dist[node] + it->dist * (it.is_nodea ? s.get_edge_pos() : 1.f - s.get_edge_pos());
-				if (firstnode == node_invalid) {
-					firstnode = node;
-					r = (u32)d;
-					// break if target edge is one-way
-					if ((flags & 3) < 3) goto loop_exit;
-				} else {
-					if (d < r) {
-						firstnode = node;
-						r = (u32)d;
-					}
-					goto loop_exit;
-				}
-			}
-
-			auto other = it.is_nodea ? it->nodeb : it->nodea;
-			auto newdist = dist[node] + it->dist;
-
-			if (dist[other] > newdist) {
-				// update distance
-				if (dist[other] < std::numeric_limits<u32>::max()) ring.erase({ dist[other] + estimate(other), other });
-				ring.insert({ newdist + estimate(other), other });
-				dist[other] = newdist;
-				next[other] = node;
-			}
-		}
-		ring.erase(el);
-	}
-	jerr << "WARNING: No path found in A*" << endl;
-	return node_invalid;
-loop_exit:
-	if (into) {
-		auto ofs = into->size();
-		into->emplace_back<Route_t>().init(into);
-		for (auto cur = firstnode; cur != node_invalid; cur = next[cur]) {
-			into->get<Route_t>(ofs).push_back(cur, into);
-		}
-	}
-	return r;
-}
-#endif
-
 u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* into) const {
 	// bidirectional
 	constexpr auto const dist_invalid = std::numeric_limits<u32>::max();
@@ -354,173 +257,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 			return abs(s.get_edge_pos() - t.get_edge_pos()) * edges()[s.id].dist;
 		}
 	}
-
-	u32 lma = landmark_invalid, lmb = landmark_invalid, state = 0;
-	if ((s.is_node() and (lma = landmark(s.id)) != landmark_invalid and (state = 1))
-		or (t.is_node() and (lma = landmark(s.id)) != landmark_invalid and (state = 2))
-		or (s.is_edge() and (lma = landmark(edges()[s.id].nodea)) != landmark_invalid
-			and (lmb = landmark(edges()[s.id].nodeb)) != landmark_invalid and (state = 3))
-		or (t.is_edge() and (lma = landmark(edges()[t.id].nodea)) != landmark_invalid
-			and (lmb = landmark(edges()[t.id].nodeb)) != landmark_invalid and (state = 4))) {
-
-		u32 dist = dist_invalid, begnode = node_invalid;
-		bool reverse = false;
-		u32 const* route_lookup = nullptr;
-		if (state == 1) {
-			route_lookup = landmark_prev(lma);
-			reverse = true;
-			if (t.is_node()) {
-				dist = landmark_distf(lma)[t.id];
-				begnode = s.id;
-			} else {
-				auto const& edge = edges()[t.id];
-				if (edge.flags & 1) {
-					u32 d = landmark_distf(lma)[edge.nodea];
-					dist = d;
-					begnode = edge.nodea;
-				} if (edge.flags & 2) {
-					u32 d = landmark_distf(lma)[edge.nodeb];
-					if (d < dist) {
-						dist = d;
-						begnode = edge.nodeb;
-					}
-				}
-			}
-		} else if (state == 2) {
-			route_lookup = landmark_next(lma);
-			if (s.is_node()) {
-				dist = landmark_distf(lma)[s.id];
-				begnode = s.id;
-			} else {
-				auto const& edge = edges()[s.id];
-				if (edge.flags & 2) {
-					dist = landmark_distb(lma)[edge.nodea];;
-					begnode = edge.nodea;
-				} if (edge.flags & 1) {
-					u32 d = landmark_distb(lma)[edge.nodeb];
-					if (d < dist) {
-						dist = d;
-						begnode = edge.nodeb;
-					}
-				}
-			}
-		} else if (state == 3) {
-			reverse = true;
-			auto const& es = edges()[s.id];
-			if (es.flags & 2) {
-				route_lookup = landmark_prev(lma);
-				if (t.is_node()) {
-					begnode = t.id;
-					dist = landmark_distf(lma)[t.id];
-				} else {
-					auto const& et = edges()[t.id];
-					if (et.flags & 1) {
-						dist = landmark_distf(lma)[et.nodea];
-						begnode = et.nodea;
-					} if (et.flags & 2) {
-						u32 d = landmark_distf(lma)[et.nodeb];
-						if (d < dist) {
-							dist = d;
-							begnode = et.nodeb;
-						}
-					}
-				}
-			} if (es.flags & 1) {
-				if (t.is_node()) {
-					u32 d = landmark_distf(lmb)[t.id];
-					if (d < dist) {
-						dist = d;
-						begnode = t.id;
-						route_lookup = landmark_prev(lmb);
-					}
-				} else {
-					auto const& et = edges()[t.id];
-					if (et.flags & 1) {
-						u32 d = landmark_distf(lmb)[et.nodea];
-						if (d < dist) {
-							dist = d;
-							begnode = et.nodea;
-							route_lookup = landmark_prev(lmb);
-						}
-					} if (et.flags & 2) {
-						u32 d = landmark_distf(lmb)[et.nodeb];
-						if (d < dist) {
-							dist = d;
-							begnode = et.nodeb;
-							route_lookup = landmark_prev(lmb);
-						}
-					}
-				}
-			}
-		} else if (state == 4) {
-			auto const& et = edges()[t.id];
-			if (et.flags & 1) {
-				route_lookup = landmark_next(lma);
-				if (s.is_node()) {
-					begnode = s.id;
-					dist = landmark_distb(lma)[s.id];
-				} else {
-					auto const& es = edges()[s.id];
-					if (es.flags & 2) {
-						dist = landmark_distb(lma)[es.nodea];
-						begnode = es.nodea;
-					} if (es.flags & 1) {
-						u32 d = landmark_distb(lma)[es.nodeb];
-						if (d < dist) {
-							dist = d;
-							begnode = es.nodeb;
-						}
-					}
-				}
-			} if (et.flags & 2) {
-				if (s.is_node()) {
-					u32 d = landmark_distb(lmb)[s.id];
-					if (d < dist) {
-						dist = d;
-						begnode = s.id;
-						route_lookup = landmark_next(lmb);
-					}
-				} else {
-					auto const& es = edges()[s.id];
-					if (es.flags & 2) {
-						u32 d = landmark_distb(lmb)[es.nodea];
-						if (d < dist) {
-							dist = d;
-							begnode = es.nodea;
-							route_lookup = landmark_next(lmb);
-						}
-					} if (es.flags & 1) {
-						u32 d = landmark_distb(lmb)[es.nodeb];
-						if (d < dist) {
-							dist = d;
-							begnode = es.nodeb;
-							route_lookup = landmark_next(lmb);
-						}
-					}
-				}
-			}
-		}
-
-		if (into) {
-			auto ofs = into->size();
-			into->emplace_back<Route_t>().init(into);
-			for (auto cur = begnode; cur != node_invalid; cur = route_lookup[cur]) {
-				into->get<Route_t>(ofs).push_back(cur, into);
-			}
-			if (reverse) {
-				auto& route = into->get<Route_t>(ofs);
-				auto size = route.size();
-				for (Route_t::Size_t i = 0; 2 * i < size - 1; ++i) {
-					Route_t::Size_t o = size - i - 1;
-					auto tmp = route[i];
-					route[i] = route[o];
-					route[o] = tmp;
-				}
-			}
-		}
-		return dist;
-	}
-
+	
 	auto spos = s.pos(*this);
 	auto tpos = t.pos(*this);
 	auto estimatef = [this, tpos](u32 const node) -> u32 {
@@ -602,9 +339,8 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 	while (true) {
 		if (ringf.empty()) break;
 		auto elf = ringf.begin();
-		assert(elf->first < inc);
+		if (elf->first >= inc) break;
 		auto nodef = elf->second;
-		assert(elf->first == distf[nodef] + estimatef(nodef));
 		// bidirectional paths meet
 		if (getvb(nodef)) {
 			assert(distb[nodef] != dist_invalid);
@@ -614,14 +350,6 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 				midnode = nodef;
 				inc = d;
 				if (t.is_node() and (u32)t.id == nodef) break;
-				// prune active nodes
-				if (elf->first >= d) {
-					// this should not happen
-					jout << elf->first << ", " << d << endl;
-					assert(false);
-				}
-				ringf.erase(ringf.lower_bound({ d, (u32)0 }), ringf.end());
-				ringb.erase(ringb.lower_bound({ d, (u32)0 }), ringb.end());
 			}
 		} else {
 			setvf(nodef);
@@ -641,10 +369,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 					auto e = estimatef(other);
 					// check against upper bound
 					if (newdist + e < inc) {
-						// update distance
-						if (distf[other] + e < inc) ringf.erase({ distf[other] + e, other });
-						//if (distf[other] + e < dist_invalid) ringf.erase({ distf[other] + e, other });
-						ringf.insert({ newdist + e, other });
+						if(distf[other] == dist_invalid) ringf.insert({ newdist + e, other });
 						distf[other] = newdist;
 						prev[other] = nodef;
 					}
@@ -655,9 +380,8 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 
 		if (ringb.empty()) break;
 		auto elb = ringb.begin();
-		assert(elb->first < inc);
+		if (elb->first >= inc) break;
 		auto nodeb = elb->second;
-		assert(elb->first == distb[nodeb] + estimateb(nodeb));
 		// bidirectional paths meet
 		if (getvf(nodeb)) {
 			assert(distf[nodeb] != dist_invalid);
@@ -667,14 +391,6 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 				midnode = nodeb;
 				inc = d;
 				if (s.is_node() and (u32)s.id == nodeb) break;
-				// prune active nodes
-				if (elb->first >= d) {
-					// this should not happen
-					jout << elb->first << ", " << d << endl;
-					assert(false);
-				}
-				ringf.erase(ringf.lower_bound({ d, (u32)0 }), ringf.end());
-				ringb.erase(ringb.lower_bound({ d, (u32)0 }), ringb.end());
 			}
 		} else {
 			setvb(nodeb);
@@ -694,10 +410,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 					auto e = estimateb(other);
 					// check against upper bound
 					if (newdist + e < inc) {
-						// update distance
-						if (distb[other] + e < inc) ringb.erase({ distb[other] + e, other });
-						//if (distb[other] + e < dist_invalid) ringb.erase({ distb[other] + e, other });
-						ringb.insert({ newdist + e, other });
+						if(distb[other] == dist_invalid) ringb.insert({ newdist + e, other });
 						distb[other] = newdist;
 						next[other] = nodeb;
 					}
@@ -751,30 +464,41 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 	return inc;
 }
 
-void Graph::add_landmark(u32 node) {
-	assert(node != node_invalid);
-	landmark_buffer.reserve_space(sizeof(Landmarks_t::Type));
-	auto& lm = landmark_buffer.get<Landmarks_t>();
-	u32 l = lm.size();
-	lm.push_back({ node, l }, &landmark_buffer);
-	std::sort(lm.begin(), lm.end());
+void Dist_cache::add_lookup(Graph_position pos) {
+	assert(pos.id != node_invalid);
+	lookup_buffer.reserve_space(sizeof(Lookups_t::Type));
+	auto& ls = lookup_buffer.get<Lookups_t>();
+	u32 l = ls.size();
+	ls.push_back({ pos, l }, &lookup_buffer);
+	std::sort(ls.begin(), ls.end());
 
-	auto nnodes = nodes().size();
-	landmark_data.addsize(4 * nnodes * sizeof(u32));
+	auto nnodes = graph->nodes().size();
+	lookup_data.addsize(4 * nnodes * sizeof(u32));
 
 	// forward dijkstra
-	u32* dist = (u32*)landmark_data.end() - 4 * nnodes;
-	u32* prev = (u32*)landmark_data.end() - 3 * nnodes;
+	u32* dist = (u32*)lookup_data.end() - 4 * nnodes;
+	u32* prev = (u32*)lookup_data.end() - 3 * nnodes;
 	for (auto i = std::numeric_limits<u32>::min(); i < nnodes; ++i) {
 		dist[i] = std::numeric_limits<u32>::max();
 		prev[i] = edge_invalid;
 	}
 	auto ring = std::set<std::pair<u32, u32>>();
-	ring.insert({ 0, node });
+
+	if (pos.is_edge()) {
+		auto const& es = graph->edges()[pos.id];
+		assert(es.nodea != node_invalid and es.nodeb != node_invalid);
+		if (es.flags & 2)
+			ring.insert({ (dist[es.nodea] = (u32)(pos.get_edge_pos() * es.dist)), es.nodea });
+		if (es.flags & 1)
+			ring.insert({ (dist[es.nodeb] = (u32)((1.f - pos.get_edge_pos()) * es.dist)), es.nodeb });
+	} else {
+		dist[pos.id] = 0;
+		ring.insert({ 0, pos.id });
+	}
 
 	for (auto el = ring.begin(); el != ring.end(); el = ring.begin()) {
 		auto node = el->second;
-		auto const& range = nodes()[node].iter(*this);
+		auto const& range = graph->nodes()[node].iter(*graph);
 		for (auto it = range.begin(); it != range.end(); ++it) {
 			u32 flags = it->flags;
 
@@ -798,22 +522,31 @@ void Graph::add_landmark(u32 node) {
 	}
 
 	// backward dijkstra
-	dist = (u32*)landmark_data.end() - 2 * nnodes;
-	u32* next = (u32*)landmark_data.end() - 1 * nnodes;
+	dist = (u32*)lookup_data.end() - 2 * nnodes;
+	u32* next = (u32*)lookup_data.end() - 1 * nnodes;
 	for (auto i = std::numeric_limits<u32>::min(); i < nnodes; ++i) {
 		dist[i] = std::numeric_limits<u32>::max();
 		next[i] = edge_invalid;
 	}
 
-	ring.insert({ 0, node });
+	if (pos.is_edge()) {
+		auto const& edge = graph->edges()[pos.id];
+		assert(edge.nodea != node_invalid and edge.nodeb != node_invalid);
+		if (edge.flags & 1)
+			ring.insert({ (dist[edge.nodea] = (u32)(pos.get_edge_pos() * edge.dist)), edge.nodea });
+		if (edge.flags & 2)
+			ring.insert({ (dist[edge.nodeb] = (u32)((1.f - pos.get_edge_pos()) * edge.dist)), edge.nodeb });
+	} else {
+		ring.insert({ dist[pos.id] = 0, pos.id });
+	}
 
 	for (auto el = ring.begin(); el != ring.end(); el = ring.begin()) {
 		auto node = el->second;
-		auto const& range = nodes()[node].iter(*this);
+		auto const& range = graph->nodes()[node].iter(*graph);
 		for (auto it = range.begin(); it != range.end(); ++it) {
 			auto other = it.is_nodea ? it->nodeb : it->nodea;
 			auto newdist = el->first + it->dist;
-			u32 flags = edges()[it.edge].flags;
+			u32 flags = it->flags;
 
 			if (it.is_nodea and (flags & 2) == 0) continue;
 			if (!it.is_nodea and (flags & 1) == 0) continue;
@@ -831,30 +564,21 @@ void Graph::add_landmark(u32 node) {
 	}
 }
 
-void Graph::add_landmark(Graph_position pos) {
-	if (pos.is_node()) add_landmark((u32)pos.id);
-	else {
-		auto const& edge = edges()[pos.id];
-		add_landmark(edge.nodea);
-		add_landmark(edge.nodeb);
-	}
-}
-
-u32 Graph::landmark(u32 node) const {
-	auto const& lm = landmark_buffer.get<Landmarks_t>();
+u32 Dist_cache::get_lookup(Graph_position pos) const {
+	auto const& ls = lookup_buffer.get<Lookups_t>();
 	// binary search
-	s32 l = 0, r = lm.size() - 1;
+	s32 l = 0, r = ls.size() - 1;
 	while (l <= r) {
 		s32 m = (r + l) / 2;
-		auto el = lm[m];
-		if (el.first == node) return el.second;
-		if (el.first < node) {
+		auto el = ls[m];
+		if (el.first == pos) return el.second;
+		if (el.first < pos) {
 			l = m + 1;
 		} else {
 			r = m - 1;
 		}
 	}
-	return landmark_invalid;
+	return lookup_invalid;
 }
 
 
@@ -969,6 +693,107 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 		edges.push_back({ (u32)edge.nodea, (u32)edge.nodeb, (u32)edge.linka,
 			(u32)edge.linkb, (u32)edge.dist, (u32)edge.flags, (u32)edge.geo, (u32)edge.name }, &m_data);
 	}
+	{
+		// remove subnetworks by running Tarjan's strongly connected components algorithm
+		auto in_main = std::make_unique<bool[]>(nodes.size());
+		auto index = std::make_unique<u32[]>(nodes.size());
+		auto lowlink = std::make_unique<u32[]>(nodes.size());
+		auto stack_pos = std::make_unique<u32[]>(nodes.size());
+		auto stack = std::make_unique<u32[]>(nodes.size());
+		for (u32 i = 0; i < nodes.size(); ++i) {
+			in_main[i] = false;
+			index[i] = lowlink[i] = stack[i] = stack_pos[i] = node_invalid;
+		}
+		u32 current_index = 0;
+		u32 stack_size = 0;
+
+		std::function<void(u32)> strongconnect = [&strongconnect, this, &in_main, &index, &lowlink,
+				&stack, &stack_pos, &current_index, &stack_size, &nodes, &edges](u32 node) {
+			index[node] = lowlink[node] = current_index++;
+			stack[stack_size] = node;
+			stack_pos[node] = stack_size++;
+			auto range = nodes[node].iter(*this);
+			for (auto it = range.begin(); it != range.end(); ++it) {
+				u32 flags = edges[it.edge].flags;
+				if (it.is_nodea and (flags & 1) == 0) continue;
+				if (!it.is_nodea and (flags & 2) == 0) continue;
+				u32 other = it.is_nodea ? it->nodeb : it->nodea;
+				if (index[other] == node_invalid) {
+					strongconnect(other);
+					u32 l = lowlink[other];
+					if (l < lowlink[node]) lowlink[node] = l;
+				} else if (stack_pos[other] != node_invalid) {
+					u32 i = index[other];
+					if (i < lowlink[node]) lowlink[node] = i;
+				}
+			}
+			if (lowlink[node] == index[node]) {
+				if (stack_size - stack_pos[node] > nodes.size() / 2) {
+					while (stack_size --> stack_pos[node]) {
+						in_main[stack[stack_size]] = true;
+					}
+					throw(jup::Resource_node());
+				} else {
+					stack_size = stack_pos[node];
+				}
+			}
+		};
+		try {
+			for (u32 i = 0; i < nodes.size(); ++i) {
+				if (index[i] == node_invalid) {
+					strongconnect(i);
+				}
+			}
+			assert(false);
+		} catch (jup::Resource_node) {
+			for (u32 i = 0; i < nodes.size(); ++i) {
+				if (not in_main[i]) {
+					auto& node = nodes[i];
+					if (node.edge != edge_invalid) {
+						auto range = node.iter(*this);
+						for (auto it = range.begin(); it != range.end();) {
+							if (it.is_nodea) {
+								auto& nodeb = nodes[it->nodeb];
+								if (nodeb.edge == it.edge) nodeb.edge = it->linkb;
+								else {
+									for (auto& edge : nodeb.iter(*this)) {
+										if (edge.linka == it.edge) {
+											const_cast<Edge&>(edge).linka = it->linkb;
+											break;
+										}
+										if (edge.linkb == it.edge) {
+											const_cast<Edge&>(edge).linkb = it->linkb;
+											break;
+										}
+									}
+								}
+							} else {
+								auto& nodea = nodes[it->nodea];
+								if (nodea.edge == it.edge) nodea.edge = it->linka;
+								else {
+									for (auto& edge : nodea.iter(*this)) {
+										if (edge.linka == it.edge) {
+											const_cast<Edge&>(edge).linka = it->linka;
+											break;
+										}
+										if (edge.linkb == it.edge) {
+											const_cast<Edge&>(edge).linkb = it->linka;
+											break;
+										}
+									}
+								}
+							}
+							auto& edge = const_cast<Edge&>(*it);
+							++it;
+							edge.nodea = 
+							edge.nodeb = node_invalid;
+						}
+						node.edge = edge_invalid;
+					}
+				}
+			}
+		}
+	}
 	for (u32 i = 0; i < (u32)edge_count; ++i) {
 		auto& e = edges[i];
 		// fix out-of-bound nodes
@@ -977,44 +802,6 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 		}
 		if (e.nodeb >= (u32)node_count) {
 			e.nodeb = node_invalid;
-		}
-		// fix one-way dead ends
-		if (e.nodea == node_invalid or e.nodeb == node_invalid) continue;
-		if ((e.flags & 1) == 0 and e.linka == edge_invalid and nodes[e.nodea].edge == i and e.nodea != e.nodeb) {
-			auto& nodeb = nodes[e.nodeb];
-			if (nodeb.edge == i) assert((nodeb.edge = e.linkb) != edge_invalid);
-			else {
-				for (auto& edge : nodeb.iter(*this)) {
-					if (edge.linka == i) {
-						const_cast<Edge&>(edge).linka = e.linkb;
-						break;
-					}
-					if (edge.linkb == i) {
-						const_cast<Edge&>(edge).linkb = e.linkb;
-						break;
-					}
-				}
-			}
-			nodes[e.nodea].edge = edge_invalid;
-			e.flags &= ~(u32)2;
-		}
-		if ((e.flags & 2) == 0 and e.linkb == edge_invalid and nodes[e.nodeb].edge == i and e.nodea != e.nodeb) {
-			auto& nodea = nodes[e.nodea];
-			if (nodea.edge == i) assert((nodea.edge = e.linka) != edge_invalid);
-			else {
-				for (auto& edge : nodea.iter(*this)) {
-					if (edge.linka == i) {
-						const_cast<Edge&>(edge).linka = e.linka;
-						break;
-					}
-					if (edge.linkb == i) {
-						const_cast<Edge&>(edge).linkb = e.linka;
-						break;
-					}
-				}
-			}
-			nodes[e.nodeb].edge = edge_invalid;
-			e.flags &= ~(u32)1;
 		}
 	}
 	file.close();
@@ -1042,9 +829,6 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 			geo.push_back(get_pos_gh(*this, pos.lat, pos.lon), &m_data);
 		}
 	}
-
-	landmark_buffer.emplace_back<Landmarks_t>();
-	landmark_buffer.get<Landmarks_t>().init(&landmark_buffer);
 }
 
 
@@ -1065,6 +849,9 @@ void Dist_cache::init(int facility_count_, Graph const* graph_) {
 
     for (auto& i: id_to_index1) { i = 0xff; }
     size = 0;
+
+	lookup_buffer.emplace_back<Lookups_t>();
+	lookup_buffer.get<Lookups_t>().init(&lookup_buffer);
 }
     
 void Dist_cache::register_pos(u8 id, Pos pos) {
@@ -1080,6 +867,10 @@ void Dist_cache::register_pos(u8 id, Pos pos) {
 
 void Dist_cache::calc_facilities() {
     assert(size == facility_count);
+	for (u8 i = 0; i < size; ++i) {
+		auto pos = positions[i];
+		add_lookup(pos);
+	}
 
     /*for (u8 a = 0; a < size; ++a) {
         m_dist(a, a) = 0;
@@ -1152,11 +943,52 @@ void Dist_cache::load_positions() {
 }
 
 u16 Dist_cache::lookup(u8 a_id, u8 b_id) {
-    u8 a = id_to_index2[a_id];
-    u8 b = id_to_index2[b_id];
-    if (m_dist(a, b) == 0xffff) {
-        m_dist(a, b) = a == b ? 0 : (u16)(graph->dist_road(positions[a], positions[b]) / 1000);
-    }
+	u8 a = id_to_index2[a_id];
+	u8 b = id_to_index2[b_id];
+	if (m_dist(a, b) == 0xffff) {
+		u32 dist = 0xffffffff;
+		if (a == b) {
+			dist = 0;
+		} else {
+			auto s = positions[a], t = positions[b];
+			u32 lid = lookup_invalid;
+
+			if ((lid = get_lookup(s)) != lookup_invalid) {
+				if (t.is_node()) {
+					dist = lookup_distf(lid)[t.id];
+				} else {
+					auto const& edge = graph->edges()[t.id];
+					if (edge.flags & 1) {
+						dist = lookup_distf(lid)[edge.nodea] + (u32)(t.get_edge_pos() * edge.dist);
+					} if (edge.flags & 2) {
+						u32 d = lookup_distf(lid)[edge.nodeb] + (u32)((1.f - t.get_edge_pos()) * edge.dist);
+						if (d < dist) {
+							dist = d;
+						}
+					}
+				}
+			} else if ((lid = get_lookup(t)) != lookup_invalid) {
+				if (s.is_node()) {
+					dist = lookup_distb(lid)[s.id];
+				} else {
+					auto const& edge = graph->edges()[s.id];
+					if (edge.flags & 2) {
+						dist = lookup_distb(lid)[edge.nodea] + (u32)(s.get_edge_pos() * edge.dist);
+					} if (edge.flags & 1) {
+						u32 d = lookup_distb(lid)[edge.nodeb] + (u32)((1.f - s.get_edge_pos()) * edge.dist);
+						if (d < dist) {
+							dist = d;
+						}
+					}
+				}
+			}
+			if (lid == lookup_invalid) {
+				dist = graph->dist_road(positions[a], positions[b]);
+			}
+		}
+
+		m_dist(a, b) = (u16)(dist / 1000);
+	}
     return m_dist(a, b);
 }
 

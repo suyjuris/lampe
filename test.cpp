@@ -146,23 +146,11 @@ void Mothership_test::pre_request_action(u8 agent, Percept const& perc, int perc
 	if (agent == 0 && perc.simulation_step == 0) {
 		jout << "NODES: " << graph->nodes().size() << endl;
 		jout << "EDGES: " << graph->edges().size() << endl;
-		if (false) {
-			for (auto const& f : perc.charging_stations) {
-				graph->add_landmark(graph->pos(f.pos));
-			}
-			for (auto const& f : perc.dumps) {
-				graph->add_landmark(graph->pos(f.pos));
-			}
-			for (auto const& f : perc.shops) {
-				graph->add_landmark(graph->pos(f.pos));
-			}
-			for (auto const& f : perc.storages) {
-				graph->add_landmark(graph->pos(f.pos));
-			}
-			for (auto const& f : perc.workshops) {
-				graph->add_landmark(graph->pos(f.pos));
-			}
+		dist_cache.init(perc.shops.size(), graph);
+		for (auto const& f : perc.shops) {
+			dist_cache.register_pos(f.id, f.pos);
 		}
+		dist_cache.calc_facilities();
 	}
 }
 
@@ -184,11 +172,15 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 			v = sin((lon2r - lon1r) / 2);
 		return 2.0 * 6371000000.0 * asin(sqrt(u * u + cos(lat1r) * cos(lat2r) * v * v));
 	};
-	if (agent != 0) {
+	if (agent != 15) {
 		into->emplace_back<Action_Skip>();
 		return;
 	}
-	Pos pos = perc().self.pos;
+	Pos pos = perc(15).self.pos;
+	u8 name = perc(15).self.name;
+	dist_cache.reset();
+	dist_cache.register_pos(name, pos);
+	dist_cache.load_positions();
 	auto start = std::chrono::high_resolution_clock::now();
 	Graph_position spos = graph->pos(pos);
 	total_time_p += (std::chrono::high_resolution_clock::now() - start).count();
@@ -200,7 +192,7 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 		++it_p;
 		step_buffer.emplace_back<Graph_position>(tmpgp);
 		start = std::chrono::high_resolution_clock::now();
-		u32 newdist = graph->A*(spos, tmpgp);
+		u32 newdist = dist_cache.lookup(name, target_id) * 1000;
 		u32 dist = graph->A*(oldsp, spos);
 		total_time += (std::chrono::high_resolution_clock::now() - start).count();
 		it += 2;
@@ -237,7 +229,9 @@ void Mothership_test::post_request_action(u8 agent, Buffer* into) {
 			<< " | " << haversine(oldp, pos) / 1000.0 << endl;
 	}
 	do {
-		target = perc().shops[rand() % perc().shops.size()].pos;
+		u8 i = rand() % perc().shops.size();
+		target_id = perc().shops[i].name;
+		target = perc().shops[i].pos;
 		start = std::chrono::high_resolution_clock::now();
 		auto tmpgp = graph->pos(target);
 		total_time_p += (std::chrono::high_resolution_clock::now() - start).count();

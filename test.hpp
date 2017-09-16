@@ -41,6 +41,8 @@ struct Mothership_test : Mothership {
 	Graph_position oldsp;
 	Pos oldp;
 	Pos target = { 0, 0 };
+	u8 target_id = 0;
+	Dist_cache dist_cache;
 };
 
 struct Mothership_dummy : Mothership {
