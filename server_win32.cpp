@@ -221,6 +221,9 @@ bool Server::load_maps() {
         if (std::strcmp(find_data.cFileName, "..") == 0) continue;
         if (not (find_data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
 
+        jout << "Loading map " << find_data.cFileName << "... ";
+        jout.flush();
+        
         int nodes_offset  = general_buffer.size();
         general_buffer.append(options.massim_loc);
         general_buffer.append("\\server\\graphs\\");
@@ -254,7 +257,7 @@ bool Server::load_maps() {
         );
         general_buffer.resize(nodes_offset);
 
-        jout << "Loaded map " << find_data.cFileName << '\n';
+        jout << "Done." << endl;
     } while (FindNextFile(handle, &find_data));
     general_buffer.resize(init_off);
     
@@ -281,7 +284,11 @@ bool Server::register_agent(Server_options::Agent_option const& agent) {
     data.id = agents().size() - 1;
     data.is_dumb = agent.is_dumb;
     if (options.use_internal_server) {
-        data.socket.init("localhost", "12300");
+        if (options.host_port) {
+            data.socket.init("localhost", options.host_port);
+        } else {
+            data.socket.init("localhost", "12300");
+        }
     } else {
         if (options.host_port) {
             data.socket.init(options.host_ip, options.host_port);

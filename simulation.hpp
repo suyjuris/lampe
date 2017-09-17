@@ -14,13 +14,12 @@ namespace jup {
 constexpr int number_of_agents = agents_per_team;
 constexpr int planning_max_tasks = 4;
 
-constexpr u8 craft_max_wait = 15;
-constexpr u8 shop_assume_duration = 30;
-
 constexpr u8 fast_forward_steps = 80;
 constexpr u8 fixer_iterations = 40;
 constexpr u8 optimizer_iterations = 10;
 constexpr u8 max_idle_time = 10;
+
+constexpr int inventory_size_min = 4;
 
 constexpr float price_shop_factor = 1.25f / 1.25f;
 constexpr u16   price_craft_val   = 125;
@@ -30,6 +29,7 @@ constexpr u8    rate_additem_carryall  = 5;
 constexpr float rate_additem_idlescale = 0.125f;
 constexpr u8    rate_additem_inventory = 120;
 constexpr u8    rate_additem_shop      = 10;
+constexpr u8    rate_additem_retrieve  = 100;
 constexpr u8    rate_additem_crafting  = 0;
 constexpr u8    rate_additem_fatten    = 30;
 
@@ -40,17 +40,27 @@ constexpr float rate_job_profit  = 0.05f;
 
 constexpr u8 fixer_it_limit = 5;
 
-constexpr float rate_val_item  = 1.0f;
+constexpr float rate_val_item  = 0.85f;
 constexpr float rate_fadeoff   = 40;
 
+constexpr float rate_error = 0.f;
+constexpr float rate_idletime = 1.f;
+
 constexpr int dist_price_fac = 1000;
+
+constexpr int max_bets_per_step = 4;
+constexpr float auction_fine_fac = 0.2f;
+constexpr float auction_profit_fac = 0.8f;
+constexpr float auction_profit_min = 200;
+
+constexpr u16 recharge_rate = 7;
 
 
 struct Task {
     // This struct must assume a default value on zero-initialization!
 
     enum Type: u8 {
-        NONE = 0, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, DELIVER_ITEM, CHARGE, VISIT
+        NONE = 0, BUY_ITEM, CRAFT_ITEM, CRAFT_ASSIST, DELIVER_ITEM, RETRIEVE, CHARGE, VISIT
     };
 
     struct Craft_id_t {
@@ -156,8 +166,9 @@ struct Partial_viewer_task_result {
     static Task_result const& view(Task_slot const& slot) { return slot.result; }
 };
 
+
 struct Strategy {
-    Task_slot m_tasks[number_of_agents * planning_max_tasks] = {0};
+    Task_slot m_tasks[number_of_agents * planning_max_tasks] = {};
     u32 s_id = 0; // Can't call it id because of hacks in the debug.hpp implementation
     u32 parent = 0;
     u16 task_next_id = 0;
@@ -188,6 +199,10 @@ struct Strategy {
         task(agent, planning_max_tasks - 1).task = Task {};
         return result;
     }
+
+    bool operator== (Strategy const& o) const {
+        return std::memcmp(m_tasks, o.m_tasks, sizeof(m_tasks)) == 0;
+    }
 };
 
 struct Self_sim: Self {
@@ -213,6 +228,11 @@ struct Crafting_plan {
         assert(0 <= i and i < number_of_agents);
         return slots[i];
     }
+};
+
+struct Auction_bet {
+    u16 job_id;
+    u32 bet;
 };
 
 // Fully describes the dynamic data of the world. Effectively combines Percept's
@@ -264,7 +284,10 @@ public:
     void flush_old(World const& world, Situation const& old, Diff_flat_arrays* diff);
     void moving_on(World const& world, Situation const& old, Diff_flat_arrays* diff);
     bool moving_on_one(World const& world, Situation const& old, Diff_flat_arrays* diff);
-    void get_action(World const& world, Situation const& old, u8 agent, Crafting_slot const& cs, Buffer* into);
+    void idle_task(World const& world, Situation const& old, u8 agent, Array<Auction_bet>* bets,
+        Buffer* into);
+    void get_action(World const& world, Situation const& old, u8 agent, Crafting_slot const& cs,
+        Array<Auction_bet>* bets, Buffer* into);
 
     u16 agent_dist(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id);
     void agent_goto_nl(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id);
@@ -280,6 +303,8 @@ public:
 
     Job* find_by_id_job(u16 id, u8* type = nullptr);
     Job& get_by_id_job(u16 id, u8* type = nullptr);
+
+    void add_item_to_agent(u8 agent, Item_stack item, Diff_flat_arrays* diff);
 };
 
 class Simulation_state {
@@ -308,17 +333,19 @@ public:
     void fast_forward();
     void fast_forward(int max_step);
 
-    void fix_errors();
-    void create_work();
-    void optimize();
+    bool fix_errors();
+    bool create_work();
+    bool optimize();
+    void shuffle();
     float rate();
-    bool fix_deadlock();
+    void auction_bets(Array<Auction_bet>* bets);
 
     void remove_task(u8 agent, u8 index);
     void reduce_load(u8 agent, u8 index);
     void reduce_buy(u8 agent, u8 index, Item_stack arg);
     void reduce_assist(u8 agent, u8 index, Item_stack arg);
     void add_item_for(u8 for_agent, u8 for_index, Item_stack for_item, bool for_tool);
+    bool fix_deadlock();
 
     u8 sim_time() { return (u8)(sit().simulation_step - orig().simulation_step); }
     int last_time(u8 agent) {

@@ -74,6 +74,7 @@ struct Mothership_test2 : Mothership {
     Simulation_state sim_state;
     Diff_flat_arrays sit_diff;
     Graph* graph;
+    Array<Auction_bet> auction_bets;
 };
 
 } /* end of namespace jup */

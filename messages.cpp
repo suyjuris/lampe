@@ -438,7 +438,6 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		narrow(job.reward,       xml_job.attribute("reward").as_int());
 		narrow(job.auction_time, xml_job.attribute("auctionTime").as_int());
 		narrow(job.fine,         xml_job.attribute("fine")  .as_int());
-		narrow(job.max_bid,      xml_job.attribute("maxBid").as_int());
 		perc.auctions.push_back(job, into);
 	}
 	Auction* joba = perc.auctions.begin();
@@ -497,7 +496,7 @@ void parse_request_action(pugi::xml_node xml_perc, Buffer* into) {
 		narrow(job.reward, xml_job.attribute("reward").as_int());
 		narrow(job.auction_time, xml_job.attribute("auctionTime").as_int());
 		narrow(job.fine, xml_job.attribute("fine").as_int());
-		narrow(job.max_bid, xml_job.attribute("maxBid").as_int());
+		narrow(job.lowest_bid, xml_job.attribute("lowestBid").as_int());
 		perc.missions.push_back(job, into);
 	}
 	Mission* jobc = perc.missions.begin();

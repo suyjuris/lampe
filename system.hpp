@@ -40,6 +40,17 @@ void write_last_errmsg();
  */
 int get_terminal_width();
 
+/**
+ * Return the time that has passed since some point (which can be set with init_elapsed_time)
+ */
+double elapsed_time();
+
+/**
+ * Set the time point elapsed_time is relative to, such that calling elapsed_time immediately
+ * afterwards would yield val.
+ */
+void init_elapsed_time(double val = 0);
+
 class Process {
 public:
     bool write_to_buffer = true;

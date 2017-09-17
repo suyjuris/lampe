@@ -51,6 +51,23 @@ int get_terminal_width() {
     return width;
 }
 
+static double elapsed_time_offset;
+
+// see header
+double elapsed_time() {
+    LARGE_INTEGER count, frequency;
+
+    assert_win( QueryPerformanceFrequency(&frequency) );
+    assert_win( QueryPerformanceCounter(&count) );
+    return (double)count.QuadPart / (double)frequency.QuadPart - elapsed_time_offset;
+}
+
+// see header
+void init_elapsed_time(double val) {
+    elapsed_time_offset = 0;
+    elapsed_time_offset = elapsed_time() - val;
+}
+
 void Process::init(const char* cmdline, const char* dir) {
     assert(cmdline);
     assert(!*this);

@@ -4,7 +4,7 @@
 
 namespace jup {	
 
-constexpr u8 agents_per_team = 11;
+constexpr u8 agents_per_team = 28;
 
 struct Item_stack {
     union {u8 item; u8 id;};
@@ -313,7 +313,7 @@ struct Job {
 struct Auction: Job {
 	u16 auction_time;
 	u32 fine;
-	u32 max_bid;
+    u32 lowest_bid;
 };
 
 using Mission = Auction;

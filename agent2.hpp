@@ -7,16 +7,19 @@
 
 namespace jup {
 
-constexpr int max_strategy_count = 32;
+constexpr int max_strategy_count = 256;
 
 constexpr float search_rating_max  = 5e5;
-constexpr float search_exploration = 0.01f;
+constexpr float search_exploration = 0.005f;
+
+constexpr float deadline_offset = 2.f;
 
 struct Strategy_slot {
     Strategy strategy;
     float rating = 0.f;
     int visited = 0;
     float rating_sum = 0.f; // Sum of own and children's ratings
+    u8 flags = 0;
 };
 
 struct Mothership_complex : Mothership {    
@@ -39,6 +42,8 @@ struct Mothership_complex : Mothership {
     Diff_flat_arrays sit_diff;
     Graph* graph;
     Crafting_plan crafting_plan;
+    Array<Auction_bet> auction_bets;
+    double deadline = 0;
 
     u32 strategy_next_id = 0;
     Array<Strategy_slot> strategies;

@@ -362,7 +362,10 @@ bool Situation::agent_goto(u8 where, u8 agent, Buffer* into) {
     auto& d = self(agent);
 
     // Could send continue if same location as last time
-    if (d.facility == where) {
+    if (d.charge < 10) {
+        into->emplace_back<Action_Recharge>();
+        return false;
+    } else if (d.facility == where) {
         return true;
     } else {
         into->emplace_back<Action_Goto1>(where);
@@ -378,7 +381,27 @@ void Situation::moving_on(World const& world, Situation const& old, Diff_flat_ar
         Crafting_plan plan = combined_plan(world);
 
         for (u8 agent = 0; agent < number_of_agents; ++agent) {
+            bool flag = false;
             if (plan.slot(agent).type == Crafting_slot::USELESS) {
+                flag = true;
+            } else if (plan.slot(agent).type == Crafting_slot::UNINVOLVED
+                and self(agent).task_index < planning_max_tasks
+                and task(agent).task.type == Task::CRAFT_ASSIST)
+            {
+                // Only need this so long as we cannot trust the ASSIST_ASSEMBLE results
+                flag = true;
+                for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
+                    for (u8 i = 0; i < planning_max_tasks; ++i) {
+                        if (strategy.task(o_agent, i).task.type == Task::CRAFT_ITEM
+                            and strategy.task(o_agent, i).task.craft_id == task(agent).task.craft_id)
+                        {
+                            flag = false;
+                        }
+                    }
+                }
+            }
+            
+            if (flag) {
                 auto& d = self(agent);
                 ++d.task_index;
                 d.task_state = 0;
@@ -414,6 +437,18 @@ bool Situation::moving_on_one(World const& world, Situation const& old, Diff_fla
                 } else {
                     break;
                 }
+            } else if (t.task.type == Task::RETRIEVE) {
+                if (d.facility != t.task.where) break;
+                
+                if (d.action_type == Action::RETRIEVE_DELIVERED and not d.action_result) {
+                    d.action_type = Action::ABORT;
+                    t.task.item.amount = 0;
+                } 
+                if (t.task.item.amount == 0) {
+                    move_on = true;
+                } else {
+                    break;
+                }
             } else if (t.task.type == Task::CRAFT_ITEM) {
                 if (d.facility != t.task.where) break;
                 
@@ -431,7 +466,7 @@ bool Situation::moving_on_one(World const& world, Situation const& old, Diff_fla
                 
                 if (d.action_type == Action::ASSIST_ASSEMBLE and not d.action_result) {
                     d.action_type = Action::ABORT;
-                    --t.task.cnt;
+                    //--t.task.cnt;
                 } 
                 if (t.task.cnt == 0) {
                     move_on = true;
@@ -487,21 +522,43 @@ bool Situation::moving_on_one(World const& world, Situation const& old, Diff_fla
     return dirty;
 }
 
-void Situation::get_action(World const& world, Situation const& old, u8 agent, Crafting_slot const& cs, Buffer* into) {
+void Situation::idle_task(World const& world, Situation const& old, u8 agent,
+    Array<Auction_bet>* bets, Buffer* into)
+{
+    if (bets->size()) {
+        auto bet = bets->back();
+        bets->addsize(-1);
+        into->emplace_back<Action_Bid_for_job>(bet.job_id, bet.bet);
+    } else {
+        into->emplace_back<Action_Recharge>();
+    }
+}
+
+void Situation::get_action(World const& world, Situation const& old, u8 agent,
+    Crafting_slot const& cs, Array<Auction_bet>* bets, Buffer* into)
+{
+    assert(bets);
     auto& t = task(agent);
 
     if (t.task.type == Task::NONE) {
-        into->emplace_back<Action_Abort>();
+        idle_task(world, old, agent, bets, into);
         return;
     } else if (t.task.type == Task::BUY_ITEM) {
         if (agent_goto(t.task.where, agent, into)) {
             into->emplace_back<Action_Buy>(t.task.item);
         }
         return;
+
+    } else if (t.task.type == Task::RETRIEVE) {
+        if (agent_goto(t.task.where, agent, into)) {
+            into->emplace_back<Action_Retrieve_delivered>(t.task.item);
+        }
+        return;
+
     } else if (t.task.type == Task::CRAFT_ITEM or t.task.type == Task::CRAFT_ASSIST) {
         if (agent_goto(t.task.where, agent, into)) {
             if (cs.type == Crafting_slot::UNINVOLVED or cs.type == Crafting_slot::IDLE) {
-                into->emplace_back<Action_Abort>();
+                idle_task(world, old, agent, bets, into);
             } else if (cs.type == Crafting_slot::EXECUTE) {
                 assert(task(cs.agent).task.type == Task::CRAFT_ITEM
                     and task(cs.agent).task.craft_id == t.task.craft_id);
@@ -516,22 +573,25 @@ void Situation::get_action(World const& world, Situation const& old, u8 agent, C
                 into->emplace_back<Action_Receive>();
             } else if (cs.type == Crafting_slot::USELESS) {
                 t.task.item.amount = 0;
-                into->emplace_back<Action_Abort>();
+                idle_task(world, old, agent, bets, into);
             } else {
                 assert(false);
             }
         }
         return;
+
     } else if (t.task.type == Task::DELIVER_ITEM) {
         if (agent_goto(t.task.where, agent, into)) {
             into->emplace_back<Action_Deliver_job>(t.task.job_id);
         }
         return;
+
     } else if (t.task.type == Task::CHARGE) {
         if (agent_goto(t.task.where, agent, into)) {
             into->emplace_back<Action_Charge>();
         }
         return;
+
     } else if (t.task.type == Task::VISIT) {
         agent_goto(t.task.where, agent, into);
         return;
@@ -595,6 +655,17 @@ Job& Situation::get_by_id_job(u16 id, u8* type) {
     return *result;
 }
 
+void Situation::add_item_to_agent(u8 agent, Item_stack item, Diff_flat_arrays* diff) {
+    for (auto& i: self(agent).items) {
+        if (i.id == item.id or i.amount == 0) {
+            i.id = item.id;
+            i.amount += item.amount;
+            return;
+        }
+    }
+    diff->add(self(agent).items, item);
+}
+
 u16 Situation::agent_dist(World const& world, Dist_cache* dist_cache, u8 agent, u8 target_id) {
     auto& d = self(agent);
     if (world.roles[agent].speed == 5) {
@@ -621,14 +692,15 @@ void Situation::agent_goto_nl(World const& world, Dist_cache* dist_cache, u8 age
     u16 dist = agent_dist(world, dist_cache, agent, target_id);
     u32 speed = world.roles[agent].speed * 500;
 
-    u16 dist_add = std::numeric_limits<u16>::max();
+    u32 dist_add = std::numeric_limits<u32>::max();
     for (auto const& i: charging_stations) {
-        dist_add = std::min(dist_add, dist_cache->lookup(target_id, i.id));
+        dist_add = std::min(dist_add, (u32)dist_cache->lookup(target_id, i.id));
     }
-    
+
     if (dist + dist_add + speed > d.charge / 10 * speed) {
         task(agent).result.err = Task_result::OUT_OF_BATTERY;
         d.task_state = 0xfe;
+        d.task_sleep = 0xff;
     } else {
         auto dur = (dist + speed-1) / speed;
         d.charge -= dur * 10;
@@ -656,6 +728,7 @@ static u8 diff_min(Task const& task, u8 item_id) {
         return 0;
 
     case Task::BUY_ITEM:
+    case Task::RETRIEVE:
     case Task::CRAFT_ITEM:
         return task.item.id != item_id ? 0 : task.item.amount;
 
@@ -861,11 +934,39 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
             item.amount -= t.task.item.amount;
             t.result.left = item.amount;
             d.load += w_item.volume * t.task.item.amount;
-            if (auto d_item = find_by_id(d.items, t.task.item.item)) {
-                d_item->amount += t.task.item.amount;
+            add_item_to_agent(agent, t.task.item, diff);
+            return;
+        }
+    } else if (t.task.type == Task::RETRIEVE) {
+        if (d.task_state == 0) {
+            d.task_state = 1;
+            agent_goto_nl(world, dist_cache, agent, t.task.where);
+        }
+        if (d.task_state == 1 and d.task_sleep == 0) {
+            auto& storage = get_by_id(storages, t.task.where);
+            auto const& w_item = get_by_id(world.items, t.task.item.id);
+            auto item = find_by_id(storage.items, t.task.item.id);
+
+            if (not item or item->delivered < t.task.item.amount) {
+                t.result.err = Task_result::NOT_IN_SHOP;
+                t.result.err_arg = {item->id, (u8)(t.task.item.amount - item->delivered)};
+                d.task_state = 0xfe;
+                return;
             } else {
-                diff->add(d.items, t.task.item);
+                d.task_sleep = 1;
             }
+
+            if (d.load + w_item.volume * t.task.item.amount > world.roles[agent].load) {
+                t.result.err = Task_result::MAX_LOAD;
+                d.task_state = 0xfe;
+                return;                
+            }
+
+            d.task_state = 0xff;
+            item->delivered -= t.task.item.amount;
+            t.result.left = item->delivered;
+            d.load += w_item.volume * t.task.item.amount;
+            add_item_to_agent(agent, t.task.item, diff);
             return;
         }
     } else if (t.task.type == Task::CRAFT_ITEM) {
@@ -932,11 +1033,7 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
                             self(o_agent).load  -= w_item.volume * cs.item.amount;
                             self(cs.agent).load += w_item.volume * cs.item.amount;
                             get_by_id(self(o_agent).items, cs.item.id).amount -= cs.item.amount;
-                            if (auto cs_item = find_by_id(self(cs.agent).items, cs.item.id)) {
-                                cs_item->amount += cs.item.amount;
-                            } else {
-                                diff->add(self(cs.agent).items, cs.item);
-                            }
+                            add_item_to_agent(cs.agent, cs.item, diff);
                             d.task_sleep = 1;
                             self(o_agent).task_state = 0xff;
                             self(o_agent).task_sleep = 1;
@@ -983,11 +1080,7 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
             
             d.task_state = 0xff;
             d.task_sleep = t.task.item.amount;
-            if (auto d_item = find_by_id(d.items, t.task.item.id)) {
-                d_item->amount += t.task.item.amount;
-            } else {
-                diff->add(d.items, t.task.item);
-            }
+            add_item_to_agent(agent, t.task.item, diff);
             d.load += item.volume * t.task.item.amount;
             
             for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
@@ -1006,8 +1099,8 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
         }
     } else if (t.task.type == Task::CRAFT_ASSIST) {
         if (d.task_state == 0) {
-            agent_goto_nl(world, dist_cache, agent, t.task.where);
             d.task_state = 1;
+            agent_goto_nl(world, dist_cache, agent, t.task.where);
         }
         if (d.task_state == 1 and d.task_sleep == 0) {
             d.task_sleep = 0xff;
@@ -1053,8 +1146,8 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
         // d.task_state == 2 is handled externally by the crafter
     } else if (t.task.type == Task::DELIVER_ITEM) {
         if (d.task_state == 0) {
-            agent_goto_nl(world, dist_cache, agent, t.task.where);
             d.task_state = 1;
+            agent_goto_nl(world, dist_cache, agent, t.task.where);
         }
         if (d.task_state == 1 and d.task_sleep == 0) {
             auto task_item = t.task.item;
@@ -1136,8 +1229,15 @@ void Situation::task_update(World const& world, Dist_cache* dist_cache, u8 agent
         }
     } else if (t.task.type == Task::CHARGE) {
         if (d.task_state == 0) {
-            agent_goto_nl(world, dist_cache, agent, t.task.where);
             d.task_state = 1;
+            agent_goto_nl(world, dist_cache, agent, t.task.where);
+
+            if (d.task_state == 0xfe and t.result.err == Task_result::OUT_OF_BATTERY and d.task_index == 0) {
+                d.task_sleep = 1;
+                d.task_state = 1;
+                t.result.err = 0;
+                d.charge += recharge_rate;
+            }
         }
         if (d.task_state == 1 and d.task_sleep == 0) {
             auto& station = get_by_id(charging_stations, t.task.where);
@@ -1155,10 +1255,21 @@ void Simulation_state::init(World* world_, Buffer* sit_buffer_, int sit_offset_,
     diff.init(sit_buffer_);
     orig_offset = sit_offset_;
     assert(sit_size_ == sit_buffer_->size() - sit_offset_);
+    orig().register_arr(&diff);
 
     // Changes to orig() may be made here, probably using diff
+
+    // Add some space to the inventories for performance
+    for (u8 agent = 0; agent < number_of_agents; ++agent) {
+        auto& items = orig().self(agent).items;
+        for (int i = items.size(); i < inventory_size_min; ++i) {
+            diff.add(items, {0, 0});
+        }
+    }
+    diff.apply();
+    diff.reset();
     
-    orig_size = sit_size_;
+    orig_size = sit_buffer_->size() - sit_offset_;
     sit_offset = sit_buffer_->size();
         
     if (dist_cache.facility_count == 0) {
@@ -1191,7 +1302,7 @@ void Simulation_state::reset() {
 }
 
 void Simulation_state::fast_forward() {
-    fast_forward(sit().simulation_step + fast_forward_steps);
+    fast_forward(std::min(sit().simulation_step + fast_forward_steps, (int)world->steps));
 }
 void Simulation_state::fast_forward(int max_step) {
     int initial_step = sit().simulation_step;
@@ -1327,6 +1438,7 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
     auto& s = orig().strategy;
     u8 index;
     if (s.task(agent, before).task.type == Task::CHARGE) {
+        assert(before != 0);
         std::swap(s.task(agent, before - 1), s.task(agent, before));
         index = before - 1;
     } else {
@@ -1360,7 +1472,7 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
 void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_item, bool for_tool) {
     struct Viable_t {
         enum Type: u8 {
-            INVALID = 0, ONLY_MOVE, BUY, CRAFT, FATTEN
+            INVALID = 0, ONLY_MOVE, BUY, RETRIEVE, CRAFT, FATTEN
         };
         u8 rating;
         u8 agent;
@@ -1374,7 +1486,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
     auto& t = s.task(for_agent, for_index);
 
     u8 viable_count = 0;
-    Viable_t viables[number_of_agents * 4];
+    Viable_t viables[number_of_agents * 5];
 
     bool is_deliver = t.task.type == Task::DELIVER_ITEM;
 
@@ -1388,6 +1500,13 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         }
     }
 
+    u8 storage_amount = 0;
+    for (auto const& i: orig().storages) {
+        if (auto j = find_by_id(i.items, for_item.id)) {
+            storage_amount = std::max(j->delivered, storage_amount);
+        }
+    }
+    
     auto const& w_item = get_by_id(world->items, for_item.id);
     bool may_craft = w_item.consumed.size() != 0;
     
@@ -1497,6 +1616,12 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
                 involved, final_amount
             };
         }
+        if (slots_1 and storage_amount > 0 and have < for_item.amount) {
+            viables[viable_count++] = {
+                (u8)(rating + rate_additem_retrieve), agent, index, Viable_t::RETRIEVE,
+                involved, std::min(storage_amount, final_amount)
+            };
+        }
         if (slots_1 and may_craft and have < for_item.amount) {
             viables[viable_count++] = {
                 (u8)(rating + rate_additem_crafting), agent, index, Viable_t::CRAFT,
@@ -1517,8 +1642,6 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         return;
     }
 
-    //JDBG_D < way->rating < way->agent < way->index < way->type < way->no_tail < way->amount,0;
-    
     u8 agent = way->agent;
     u8 index = way->index;
     for_item.amount = way->amount;
@@ -1578,9 +1701,6 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
             
             u16 d = dist_cache.lookup_old(from_id, i.id) + dist_cache.lookup_old(i.id, to_id);
             d = d / dist_price_fac + j->cost * for_item.amount;
-            //d += j->cost * for_item.amount * 10;
-            
-            // TODO: Respect costs
         
             if (d < min_dist) {
                 min_dist = d;
@@ -1590,6 +1710,18 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
         assert(min_arg != 0);
 
         s.insert_task(agent, index, Task {Task::BUY_ITEM, min_arg, ++s.task_next_id, for_item});
+    } else if (way->type == Viable_t::RETRIEVE) {
+        u8 min_arg = 0;
+        for (auto const& i: orig().storages) {
+            auto j = find_by_id(i.items, for_item.id);
+            if (j and j->delivered >= for_item.amount) {
+                min_arg = i.id;
+                break;
+            }
+        }
+        assert(min_arg != 0);
+
+        s.insert_task(agent, index, Task {Task::RETRIEVE, min_arg, ++s.task_next_id, for_item});
     } else if (way->type == Viable_t::CRAFT) {
         Pos from = index > 0
             ? orig().find_pos(s.task(agent, index - 1).task.where)
@@ -1642,7 +1774,6 @@ void Simulation_state::reduce_buy(u8 agent, u8 index, Item_stack arg) {
     }
 }
 
-
 void Simulation_state::reduce_assist(u8 agent, u8 index, Item_stack arg) {
     auto& t = orig().strategy.task(agent, index);
     if (arg.amount < t.task.item.amount) {
@@ -1652,7 +1783,6 @@ void Simulation_state::reduce_assist(u8 agent, u8 index, Item_stack arg) {
     }
 }
 
-
 void Strategy::insert_task(u8 agent, u8 index, Task task_) {
     for (u8 i = planning_max_tasks - 1; i > index; --i) {
         task(agent, i) = task(agent, i-1);
@@ -1660,8 +1790,9 @@ void Strategy::insert_task(u8 agent, u8 index, Task task_) {
     task(agent, index).task = task_;
 }
 
-void Simulation_state::fix_errors() {
-    //debug_flag = orig().strategy.s_id == 7745 or orig().strategy.s_id == 7743;
+bool Simulation_state::fix_errors() {
+    //debug_flag = orig().strategy.s_id == 3170 or orig().strategy.s_id == 3169;
+    bool dirty = false;
     for (int it = 0; it < fixer_iterations; ++it) {
         reset();
         fast_forward();
@@ -1699,6 +1830,7 @@ void Simulation_state::fix_errors() {
 
             auto& ot = orig().strategy.task(agent, index);
             ++ot.task.fixer_it;
+            dirty = true;
             if (ot.task.fixer_it > fixer_it_limit) {
                 remove_task(agent, index);
             } else if (r.err == Task_result::OUT_OF_BATTERY) {
@@ -1731,11 +1863,14 @@ void Simulation_state::fix_errors() {
             
             JDBG_D < it < agent < index < r ,0;
         } else {
-            if (not fix_deadlock()) break;
-
-            //jdbg < "NOERR" < it ,0;
+            if (fix_deadlock()) {
+                dirty = true;
+            } else {
+                break;
+            }
         }
     }
+    return dirty;
 }
     
 bool Simulation_state::fix_deadlock() {
@@ -1861,7 +1996,7 @@ bool Simulation_state::fix_deadlock() {
     return true;
 }
 
-void Simulation_state::create_work() {
+bool Simulation_state::create_work() {
     u8 viable_agents[number_of_agents];
     int viable_agents_count = 0;
     
@@ -1882,7 +2017,7 @@ void Simulation_state::create_work() {
             }
         }
     }
-    if (viable_agents_count == 0) return;
+    if (viable_agents_count == 0) return false;
 
     bool has_err = false;
     for (u8 agent = 0; agent < number_of_agents; ++agent) {
@@ -1891,7 +2026,7 @@ void Simulation_state::create_work() {
             has_err = true;
         }
     }
-    if (has_err) return;
+    if (has_err) return false;
 
     struct Viable_job_t {
         u16 rating;
@@ -1901,7 +2036,7 @@ void Simulation_state::create_work() {
     Viable_job_t* viable_jobs = (Viable_job_t*)alloca(orig().jobs.size() * sizeof(Viable_job_t));
     int viable_job_count = 0;
 
-    auto add_job = [&](Job const& job, int fine) {
+    auto add_job = [&](Job const& job, int reward, int fine) {
         bool started = false;
         for (u8 agent = 0; agent < number_of_agents; ++agent) {
             for (u8 i = 0; i < planning_max_tasks; ++i) {
@@ -1930,22 +2065,34 @@ void Simulation_state::create_work() {
             complexity += i_cost.craftval * i.amount;
         }
         
-        float profit = ((float)(job.reward + fine) - (float)cost * rate_job_cost) / (float)complexity;
+        float profit = ((float)(reward + fine) - (float)cost * rate_job_cost) / (float)complexity;
         profit = std::max(profit, 0.f);
 
         u8 rating = 1;
         rating += started ? rate_job_started : 0;
         rating += (u8)(profit * rate_job_profit);
-        viable_jobs[viable_job_count++] = {rating, job.id};
+        if (rating > 0) {
+            viable_jobs[viable_job_count++] = {rating, job.id};
+        }
     };
     
     for (Job const& job: sit().jobs) {
-        add_job(job, 0);
+        // Exclude jobs posted by the other team
+        if (job.required.size() < 2 or job.required.size() > 6) continue;
+        
+        add_job(job, job.reward, 0);
+    }
+    for (Auction const& job: sit().auctions) {
+        // Exclude auctions still in progress
+        if (orig().simulation_step < job.start + job.auction_time) continue;
+        
+        add_job(job, job.lowest_bid, job.fine);
     }
     for (Mission const& job: sit().missions) {
-        add_job(job, job.fine);
+        add_job(job, job.reward, job.fine);
     }
 
+    bool dirty = false;
     if (viable_job_count > 0) {
         u16 job_id = rng.choose_weighted(viable_jobs, viable_job_count)->job_id;
         u8 job_type;
@@ -1974,56 +2121,84 @@ void Simulation_state::create_work() {
             s.task(agent, sit().self(agent).task_index).task = Task {
                 Task::DELIVER_ITEM, job.storage, ++s.task_next_id, i, job.id
             };
+            dirty = true;
             
             break; // Only one item at a time
         }
     } else {
-        // Add an item
+        // Let the agents buy tools
 
-        /*u8* viable_items = (u8*)alloca(world->items.size() * sizeof(u8));
-        int viable_item_count = 0;
+        u8 prior_tools[number_of_agents] = {};
+        
+        constexpr int viable_tool_max = 16;
+        u8* viable_tools = (u8*)alloca(viable_tool_max * sizeof(u8));
+        
+        while (viable_agents_count) {
+            int agent_index = rng.gen_uni(viable_agents_count);
+            u8 agent = viable_agents[agent_index];
+            auto& d = sit().self(agent);
+            viable_agents[agent_index] = viable_agents[--viable_agents_count];
 
-        for (Item const& i: world->items) {
-            if (i.consumed.size() == 0) continue;
-            viable_items[viable_item_count++] = i.id;
-        }
+            int viable_tool_count = 0;
+            for (u8 tool: world->roles[agent].tools) {
+                bool already = false;
+                for (u8 o_agent = 0; o_agent < number_of_agents; ++o_agent) {
+                    if (auto item = find_by_id(sit().self(o_agent).items, tool)) {
+                        already |= item->amount > 0;
+                    }
+                }
+                for (u8 i: prior_tools) {
+                    already |= tool == i;
+                }
+                if (already) continue;
 
-        u8 item_id = viable_items[rng.gen_uni(viable_item_count)];
-        u8 agent = viable_agents[rng.gen_uni(viable_agents_count)];
-
-        // Find nearest workshop (duplicate code)
-        u32 min_dist = std::numeric_limits<u32>::max();
-        u8 min_arg = 0;
-        Pos from = sit().self(agent).pos;
-        for (auto const& i: orig().workshops) {
-            u32 dist = world->graph->dist_air(from, i.pos);
-            if (dist < min_dist) {
-                min_dist = dist;
-                min_arg = i.id;
+                viable_tools[viable_tool_count++] = tool;
+                if (viable_tool_count == viable_tool_max) break;
             }
-        }
-        assert(min_arg != 0);
 
-        int i = sit().self(agent).task_index;
-        s.task(agent, i).task = Task { Task::CRAFT_ITEM, min_arg, ++task_next_id, {item_id, 1} };
-        s.task(agent, i).task.crafter.id = agent;
-        s.task(agent, i).task.crafter.check = (u8)(rng.rand() & 0xff);
-        */
+            if (viable_tool_count == 0) continue;
+
+            u8 tool = viable_tools[rng.gen_uni(viable_tool_count)];
+            prior_tools[agent] = tool;
+
+            u8 from_id = d.task_index
+                ? s.task(agent, d.task_index - 1).task.where
+                : orig().self(agent).name;
+    
+            int min_dist = std::numeric_limits<int>::max();
+            u8 min_arg = 0;
+            for (auto const& i: orig().shops) {
+                auto j = find_by_id(i.items, tool);
+                if (not j or j->amount == 0) continue;
+                
+                u16 dd = dist_cache.lookup_old(from_id, i.id);
+                dd = dd / dist_price_fac + j->cost;
+            
+                if (dd < min_dist) {
+                    min_dist = dd;
+                    min_arg = i.id;
+                }
+            }
+            if (min_arg == 0) continue;
+
+            s.insert_task(agent, d.task_index, Task {
+                Task::BUY_ITEM, min_arg, ++s.task_next_id, {tool, 1}
+            });
+            dirty = true;
+        }
     }
+    return dirty;
 }
 
-void Simulation_state::optimize() {
-    // Remove unnecessary items
-    
+bool Simulation_state::optimize() {    
     for (int it = 0; it < optimizer_iterations; ++it) {
         reset();
         fast_forward();
 
-        //JDBG_L < orig().strategy.p_results() ,1;
-        //JDBG_L < orig().strategy.p_tasks() ,0;
-        
         bool dirty = false;
         auto& s = orig().strategy;
+        
+        // Remove unnecessary items
         for (u8 agent = 0; agent < number_of_agents; ++agent) {
             auto& d = sit().self(agent);
             if (last_time(agent) == sit().simulation_step) continue;
@@ -2048,9 +2223,20 @@ void Simulation_state::optimize() {
             }
         }
 
-        if (not dirty) break;
-        //JDBG_L ,0;
+        // Remove tasks not finished in time
+        for (u8 agent = 0; agent < number_of_agents; ++agent) {
+            auto& d = sit().self(agent);
+            if (d.task_index == 0 or last_time(agent) < world->steps) continue;
+            
+            for (u8 i = d.task_index - 1; i < planning_max_tasks; ++i) {
+                orig().strategy.pop_task(agent, i);
+                dirty = true;
+            }
+        }
+
+        if (not dirty) return it > 0;
     }
+    return true;
 }
 
 float Simulation_state::rate() {
@@ -2063,14 +2249,56 @@ float Simulation_state::rate() {
     float item_rating = 0;
     for (u8 agent = 0; agent < number_of_agents; ++agent) {
         for (auto const& i: sit().self(agent).items) {
+            if (i.id == 0) continue;
             item_rating += get_by_id(world->item_costs, i.id).value() * i.amount;
         }
     }
-    //float fadeoff = std::min(1.f, (world->steps - sit().simulation_step) / rate_fadeoff);
-    //rating += item_rating * rate_val_item * fadeoff;
-    rating += item_rating * rate_val_item;
+    float fadeoff = std::min(1.f, (world->steps - orig().simulation_step) / rate_fadeoff);
+    rating += item_rating * rate_val_item * fadeoff;
+    //rating += item_rating * rate_val_item;
+
+    for (u8 agent = 0; agent < number_of_agents; ++agent) {
+        if (sit().strategy.task(agent, 0).result.err) {
+            rating -= rate_error;
+        }
+        rating += (sit().simulation_step - last_time(agent)) * rate_idletime;
+    }
 
     return rating;
+}
+
+void Simulation_state::auction_bets(Array<Auction_bet>* bets) {
+    assert(bets);
+    bets->reset();
+    bets->reserve(max_bets_per_step);
+
+    for (Auction const& job: sit().auctions) {
+        if (orig().simulation_step + 1 != job.start + job.auction_time) continue;
+
+        int cost = 0;
+        int complexity = 0;
+        for (auto i: job.required) {
+            int need = i.amount;
+            for (u8 agent = 0; agent < number_of_agents; ++agent) {
+                if (auto j = find_by_id(sit().self(agent).items, i.id)) {
+                    need -= std::min((int)j->amount, need);
+                }
+            }
+
+            auto const& i_cost = get_by_id(world->item_costs, i.id);
+            cost += i_cost.value() * need;
+            cost += (u8)((float)(i_cost.value() * (i.amount - need)) * rate_job_havefac) ;
+            complexity += i_cost.craftval * i.amount;
+        }
+        
+        float profit = ((float)job.reward - (float)job.fine * auction_fine_fac
+            - (float)cost * rate_job_cost) / (float)complexity * auction_profit_fac;
+
+        if (profit > auction_profit_min) {
+            bets->push_back({job.id, job.reward});
+        }
+        if (bets->size() == max_bets_per_step) return;
+    }
 }
 
 

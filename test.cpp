@@ -292,6 +292,8 @@ void Mothership_test2::pre_request_action(u8 agent, Percept const& perc, int per
 }
 
 void Mothership_test2::on_request_action() {
+    world().step_post(&world_buffer);
+    
     sit_diff.init(&sit_buffer);
     sit().register_arr(&sit_diff);
     
@@ -318,26 +320,53 @@ void Mothership_test2::on_request_action() {
         sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
     }
 #else
-    if (sit().simulation_step == 0) {
+    if (sit().simulation_step == 20) {
         /*sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 4,
-          Item_stack {get_id_from_string("item10"), 1}, 3393};*/
+          Item_stack {get_id_from_string("item10"), 1}, 3393};
         sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 3,
             Item_stack {get_id_from_string("item11"), 1}, 3393};
         sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 2,
             Item_stack {get_id_from_string("item14"), 1}, 3393};
         sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 1,
-        Item_stack {get_id_from_string("item9" ), 1}, 3393};
-        sit().strategy.task_next_id = 3;
+        Item_stack {get_id_from_string("item9" ), 1}, 3393};*/
+        sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage6"), 1,
+          Item_stack {get_id_from_string("item13"), 1}, get_id_from_string16("job0")};
+        sit().strategy.task_next_id = 2;
         
         sim_buffer.reset();
         sim_buffer.append(sit_buffer);
         sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
         sim_state.fix_errors();
-        std::memcpy(&sit().strategy, &sim_state.sit().strategy, sizeof(sit().strategy));
+        JDBG_L < sim_state.sit().strategy.p_results() ,0;
+        std::memcpy(&sit().strategy, &sim_state.orig().strategy, sizeof(sit().strategy));
+    }
+    if (sit().simulation_step == 153) {
+        /*sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 4,
+          Item_stack {get_id_from_string("item10"), 1}, 3393};
+        sit().strategy.task(1, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 3,
+            Item_stack {get_id_from_string("item11"), 1}, 3393};
+        sit().strategy.task(2, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 2,
+            Item_stack {get_id_from_string("item14"), 1}, 3393};
+        sit().strategy.task(3, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 1,
+        Item_stack {get_id_from_string("item9" ), 1}, 3393};*/
+        sit().strategy.task(0, 0).task = Task {Task::DELIVER_ITEM, get_id_from_string("storage4"), 1000,
+          Item_stack {get_id_from_string("item13"), 1}, get_id_from_string16("job8")};
+        sit().strategy.task_next_id = 1001;
+        
+        sim_buffer.reset();
+        sim_buffer.append(sit_buffer);
+        sim_state.init(&world(), &sim_buffer, 0, sim_buffer.size());
+        sim_state.fix_errors();
+        JDBG_L < sim_state.sit().strategy.p_results() ,1;
+        JDBG_L < sim_state.orig().strategy.p_tasks() ,0;
+        std::memcpy(&sit().strategy, &sim_state.orig().strategy, sizeof(sit().strategy));
     }
 #endif
+
+    crafting_plan = sit().combined_plan(world());
+    //sim_state.auction_bets(&auction_bets);
     
-    if (sit().simulation_step > 0) {
+    if (sit().simulation_step > 153 and sit().simulation_step < 200) {
         sim_state.reset();
         sim_state.fast_forward(sit().simulation_step);
         
@@ -352,21 +381,15 @@ void Mothership_test2::on_request_action() {
         std::memcpy(&sim_state.sit().strategy, &sit().strategy, sizeof(sit().strategy));
 
         jdbg_diff(sim_state.sit(), sit());
-    }
-
-    if (sit().simulation_step == 20) {
-        //jdbg_diff(sit(), sim_state.sit());
-        die(false);
-    }
-
-    crafting_plan = sit().combined_plan(world());
-    
+        //JDBG_L < sit().strategy.p_tasks() ,0;
+        //JDBG_L < crafting_plan ,0;
+    }    
     //JDBG_L < sit() ,0;
 }
 
 void Mothership_test2::post_request_action(u8 agent, Buffer* into) {
     Situation* old = sit().simulation_step == 0 ? &sit() : &sit_old();
-    sit().get_action(world(), *old, agent, crafting_plan.slot(agent), into);
+    sit().get_action(world(), *old, agent, crafting_plan.slot(agent), &auction_bets, into);
 }
 
 

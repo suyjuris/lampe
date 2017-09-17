@@ -584,6 +584,9 @@ struct Diff_flat_arrays_base {
     Flat_array<Flat_array_ref>&       refs()       { return diffs.get<Flat_array<Flat_array_ref>>(); }
 
     void apply() {
+        if (not first()) return;
+        
+        assert(container);
         for (auto& i: refs()) {
             assert(container->inside(container->begin() + i.first_byte(*container), sizeof(Offset_t)));
             Offset_t off = container->get<Offset_t>(i.first_byte(*container));
@@ -595,7 +598,6 @@ struct Diff_flat_arrays_base {
             assert(container->inside(container->begin() + i.last_byte(*container) - 1));
         }
         
-        assert(container);
         if (refs().size()) {
             assert(refs().back().last_byte(*container) == container->size());
         }
