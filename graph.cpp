@@ -704,92 +704,116 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 			in_main[i] = false;
 			index[i] = lowlink[i] = stack[i] = stack_pos[i] = node_invalid;
 		}
+		struct Call_stack_t {
+			u32 node;
+			u32 other;
+			Edge_iterator it;
+		};
+		auto call_stack = std::make_unique<Call_stack_t[]>(nodes.size());
 		u32 current_index = 0;
-		u32 stack_size = 0;
 
-		std::function<void(u32)> strongconnect = [&strongconnect, this, &in_main, &index, &lowlink,
-				&stack, &stack_pos, &current_index, &stack_size, &nodes, &edges](u32 node) {
-			index[node] = lowlink[node] = current_index++;
-			stack[stack_size] = node;
-			stack_pos[node] = stack_size++;
-			auto range = nodes[node].iter(*this);
-			for (auto it = range.begin(); it != range.end(); ++it) {
-				u32 flags = edges[it.edge].flags;
-				if (it.is_nodea and (flags & 1) == 0) continue;
-				if (!it.is_nodea and (flags & 2) == 0) continue;
-				u32 other = it.is_nodea ? it->nodeb : it->nodea;
-				if (index[other] == node_invalid) {
-					strongconnect(other);
+		const Edge_iterator it_invalid{};
+		for (u32 i = 0; i < nodes.size(); ++i) {
+			if (index[i] == node_invalid) {
+				u32 node = i;
+				u32 stack_size = 0;
+				u32 call_depth = 0;
+			new_node:
+				index[node] = lowlink[node] = current_index++;
+				stack[stack_size] = node;
+				stack_pos[node] = stack_size++;
+				call_stack[++call_depth] = { node, node_invalid, nodes[node].iter(*this).begin() };
+			next_edge:
+				auto& call = call_stack[call_depth];
+				node = call.node;
+				auto it = call.it;
+				if (it == it_invalid) {
+					if (lowlink[node] == index[node]) {
+						if (stack_size - stack_pos[node] > nodes.size() / 2) {
+							while (stack_size-- > stack_pos[node]) {
+								in_main[stack[stack_size]] = true;
+							}
+							goto prune;
+						} else {
+							u32 c = node_invalid;
+							while (c != node) {
+								assert(stack_size > 0);
+								c = stack[--stack_size];
+								stack_pos[c] = node_invalid;
+							}
+						}
+					}
+					--call_depth;
+					auto& call = call_stack[call_depth];
+					node = call.node;
+					u32 other = call.other;
+					assert(other != node_invalid);
 					u32 l = lowlink[other];
 					if (l < lowlink[node]) lowlink[node] = l;
+					goto next_edge;
+				}
+				++call.it;
+				u32 flags = edges[it.edge].flags;
+				if (it.is_nodea and (flags & 1) == 0) goto next_edge;
+				if (!it.is_nodea and (flags & 2) == 0) goto next_edge;
+				u32 other = it.is_nodea ? it->nodeb : it->nodea;
+				assert(other != node_invalid);
+				if (index[other] == node_invalid) {
+					call.other = other;
+					node = other;
+					goto new_node;
 				} else if (stack_pos[other] != node_invalid) {
 					u32 i = index[other];
 					if (i < lowlink[node]) lowlink[node] = i;
 				}
+				goto next_edge;
 			}
-			if (lowlink[node] == index[node]) {
-				if (stack_size - stack_pos[node] > nodes.size() / 2) {
-					while (stack_size --> stack_pos[node]) {
-						in_main[stack[stack_size]] = true;
-					}
-					throw(jup::Resource_node());
-				} else {
-					stack_size = stack_pos[node];
-				}
-			}
-		};
-		try {
-			for (u32 i = 0; i < nodes.size(); ++i) {
-				if (index[i] == node_invalid) {
-					strongconnect(i);
-				}
-			}
-			assert(false);
-		} catch (jup::Resource_node) {
-			for (u32 i = 0; i < nodes.size(); ++i) {
-				if (not in_main[i]) {
-					auto& node = nodes[i];
-					if (node.edge != edge_invalid) {
-						auto range = node.iter(*this);
-						for (auto it = range.begin(); it != range.end();) {
-							if (it.is_nodea) {
-								auto& nodeb = nodes[it->nodeb];
-								if (nodeb.edge == it.edge) nodeb.edge = it->linkb;
-								else {
-									for (auto& edge : nodeb.iter(*this)) {
-										if (edge.linka == it.edge) {
-											const_cast<Edge&>(edge).linka = it->linkb;
-											break;
-										}
-										if (edge.linkb == it.edge) {
-											const_cast<Edge&>(edge).linkb = it->linkb;
-											break;
-										}
+		}
+		assert(false);
+	prune:
+		for (u32 i = 0; i < nodes.size(); ++i) {
+			if (not in_main[i]) {
+				auto& node = nodes[i];
+				if (node.edge != edge_invalid) {
+					auto range = node.iter(*this);
+					for (auto it = range.begin(); it != range.end();) {
+						if (it.is_nodea) {
+							auto& nodeb = nodes[it->nodeb];
+							if (nodeb.edge == it.edge) nodeb.edge = it->linkb;
+							else {
+								for (auto& edge : nodeb.iter(*this)) {
+									if (edge.linka == it.edge) {
+										const_cast<Edge&>(edge).linka = it->linkb;
+										break;
 									}
-								}
-							} else {
-								auto& nodea = nodes[it->nodea];
-								if (nodea.edge == it.edge) nodea.edge = it->linka;
-								else {
-									for (auto& edge : nodea.iter(*this)) {
-										if (edge.linka == it.edge) {
-											const_cast<Edge&>(edge).linka = it->linka;
-											break;
-										}
-										if (edge.linkb == it.edge) {
-											const_cast<Edge&>(edge).linkb = it->linka;
-											break;
-										}
+									if (edge.linkb == it.edge) {
+										const_cast<Edge&>(edge).linkb = it->linkb;
+										break;
 									}
 								}
 							}
-							auto& edge = const_cast<Edge&>(*it);
-							++it;
-							edge.nodea = 
-							edge.nodeb = node_invalid;
+						} else {
+							auto& nodea = nodes[it->nodea];
+							if (nodea.edge == it.edge) nodea.edge = it->linka;
+							else {
+								for (auto& edge : nodea.iter(*this)) {
+									if (edge.linka == it.edge) {
+										const_cast<Edge&>(edge).linka = it->linka;
+										break;
+									}
+									if (edge.linkb == it.edge) {
+										const_cast<Edge&>(edge).linkb = it->linka;
+										break;
+									}
+								}
+							}
 						}
-						node.edge = edge_invalid;
+						auto& edge = const_cast<Edge&>(*it);
+						++it;
+						edge.nodea =
+							edge.nodeb = node_invalid;
 					}
+					node.edge = edge_invalid;
 				}
 			}
 		}
