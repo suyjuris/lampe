@@ -35,6 +35,7 @@
 #include <ostream>
 #include <set>
 #include <sstream>
+#include <stack>
 #include <string>
 #include <thread>
 #include <type_traits>

@@ -1,7 +1,7 @@
 
+#include "debug.hpp"
 #include "objects.hpp"
 #include "graph.hpp"
-#include <stack>
 
 namespace jup {
 
@@ -235,7 +235,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 	// bidirectional
 	constexpr auto const dist_invalid = std::numeric_limits<u32>::max();
 	// underestimate rounding error correction
-	constexpr auto const dist_margin = 1000.f;
+	constexpr auto const dist_margin = 2000.f;
 
 	if (s.is_node() and t.is_node() and s.id == t.id) {
 		if (into) {
@@ -404,7 +404,9 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 				auto other = it.is_nodea ? it->nodeb : it->nodea;
 				assert(other != node_invalid);
 				auto newdist = distb[nodeb] + it->dist;
-				assert(newdist > estimatef(other));
+                if (newdist <= estimatef(other)) {
+                    JDBG_L < "Misestimation:" < newdist < estimatef(other) ,0;
+                }
 
 				if (newdist < distb[other]) {
 					auto e = estimateb(other);
