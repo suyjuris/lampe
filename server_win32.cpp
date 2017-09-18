@@ -411,21 +411,26 @@ void Server::run_simulation() {
             mothership->pre_request_action();
         
             for (Agent_data& i: agents()) {
-                auto& mess = get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
+                auto mess = &get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
                 if (options.use_internal_server) {
-                    assert(mess.perception.simulation_step == step);
+                    assert(mess->perception.simulation_step == step);
                 } else {
-                    if (step != mess.perception.simulation_step) {
+                    if (step < mess->perception.simulation_step) {
                         jerr << "Warning: Adjusting simulation step from " << step << " to "
-                             << mess.perception.simulation_step << '\n';
-                        step = mess.perception.simulation_step;
+                             << mess->perception.simulation_step << '\n';
+                        step = mess->perception.simulation_step + 1;
+                    } else if (step > mess->perception.simulation_step) {
+                        while (step > mess->perception.simulation_step) {
+                            jerr << "Warning: aksjdkajsd\n";
+                            mess = &get_next_message_ref<Message_Request_Action>(i.socket, &step_buffer);
+                        }
                     }
                 }
 
-                i.last_perception_id = mess.perception.id;
+                i.last_perception_id = mess->perception.id;
                 if (not i.is_dumb) {
-                    mothership->pre_request_action(i.id, mess.perception,
-                                                   step_buffer.end() - (char*)&mess.perception);
+                    mothership->pre_request_action(i.id, mess->perception,
+                                                   step_buffer.end() - (char*)&mess->perception);
                 }
             }
             mothership->on_request_action();

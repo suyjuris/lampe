@@ -1556,6 +1556,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
                 if (
                     s.task(agent, i).task.type == Task::DELIVER_ITEM
                     and s.task(agent, i).task.job_id == t.task.job_id
+                    and not sit().strategy.task(agent, i).result.err
                 ) {
                     involved = true;
                     index = i;
@@ -2107,6 +2108,7 @@ bool Simulation_state::create_work() {
         u8 job_type;
         Job const& job = sit().get_by_id_job(job_id, &job_type);
 
+        bool break_imm = rng.gen_bool(200);
         for (auto i: job.required) {
             // Make i a copy, to be able to modify it
             
@@ -2131,8 +2133,8 @@ bool Simulation_state::create_work() {
                 Task::DELIVER_ITEM, job.storage, ++s.task_next_id, i, job.id
             };
             dirty = true;
-            
-            break; // Only one item at a time
+
+            if (break_imm) break; // Only one item at a time
         }
     } else {
         // Let the agents buy tools
@@ -2265,6 +2267,7 @@ float Simulation_state::rate() {
     float fadeoff = std::min(1.f, (world->steps - sit().simulation_step) / rate_fadeoff);
     rating += item_rating * rate_val_item * fadeoff;
     //rating += item_rating * rate_val_item;
+    
 
     for (u8 agent = 0; agent < number_of_agents; ++agent) {
         if (sit().strategy.task(agent, 0).result.err) {

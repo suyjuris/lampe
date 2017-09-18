@@ -26,7 +26,6 @@ void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, in
 void Mothership_complex::pre_request_action() {
     std::swap(sit_buffer, sit_old_buffer);
     sit_buffer.reset();
-    deadline = elapsed_time() + deadline_offset;
 }
 
 void Mothership_complex::pre_request_action(u8 agent, Percept const& perc, int perc_size) {
@@ -36,6 +35,7 @@ void Mothership_complex::pre_request_action(u8 agent, Percept const& perc, int p
 
         // This actually only invalidates the world in the first step, unless step_init changes
         world().step_init(perc, &world_buffer);
+        deadline = elapsed_time() + deadline_offset;
     }
     
     sit().update(perc, agent, &sit_buffer);
@@ -129,8 +129,8 @@ void Mothership_complex::on_request_action() {
     std::memcpy(&sim_state.orig().strategy, &strategies[best_arg].strategy, sizeof(Strategy));
     sim_state.reset();
     sim_state.fast_forward();
-    //JDBG_L < sim_state.sit().strategy.p_results() ,1;
-    //JDBG_L < sim_state.orig().strategy.p_tasks() ,0;
+    JDBG_L < sim_state.sit().strategy.p_results() ,1;
+    JDBG_L < sim_state.orig().strategy.p_tasks() ,0;
 
     jout << "Searched " << strategies.size() << " strategies, with max " << best_value << endl;
     
