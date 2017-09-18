@@ -27,9 +27,9 @@ constexpr u16   price_craft_val   = 125;
 constexpr u8    rate_additem_involved  = 30;
 constexpr u8    rate_additem_carryall  = 5;
 constexpr float rate_additem_idlescale = 0.125f;
-constexpr u8    rate_additem_inventory = 120;
+constexpr u8    rate_additem_inventory = 70;
 constexpr u8    rate_additem_shop      = 10;
-constexpr u8    rate_additem_retrieve  = 100;
+constexpr u8    rate_additem_retrieve  = 60;
 constexpr u8    rate_additem_crafting  = 0;
 constexpr u8    rate_additem_fatten    = 30;
 
@@ -40,7 +40,7 @@ constexpr float rate_job_profit  = 0.05f;
 
 constexpr u8 fixer_it_limit = 5;
 
-constexpr float rate_val_item  = 0.85f;
+constexpr float rate_val_item  = 0.83f;
 constexpr float rate_fadeoff   = 40;
 
 constexpr float rate_error = 0.f;
@@ -145,6 +145,7 @@ struct Job_item {
 struct Bookkeeping {
     // Keep in mind to add any arrays here into Situation::register_arr as well
     Flat_array<Job_item> delivered;
+    bool other_team_auction = false;
 
     void add_item_to_job(u16 job, Item_stack item, Diff_flat_arrays* diff);
 };

@@ -14,6 +14,13 @@ CV2PDB = cv2pdb
 TMPDIR = build_files
 PRE_HEADER = $(TMPDIR)/global.hpp.gch
 
+ifdef LAMPE_FAST
+  CXXFLAGS += -O3 -march=native
+  CPPFLAGS += -DNDEBUG
+else
+  CXXFLAGS += -O0
+endif
+
 .PHONY: default all clean test init
 .SUFFIXES:
 

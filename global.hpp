@@ -53,7 +53,7 @@
 
 #ifdef NDEBUG
 
-#define assert(expr) (void)__builtin_expect(not (expr), 0)
+#define assert(expr) (__builtin_expect(not (expr), 0) ? __builtin_unreachable() : (void)0)
 #define assert_errno(expr) assert(expr)
 #define assert_win(expr) assert(expr)
 

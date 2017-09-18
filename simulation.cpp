@@ -270,6 +270,15 @@ Situation::Situation(Percept const& p0, Situation const* sit_old, Buffer* contai
         
         std::memcpy(&this_->strategy, &sit_old->strategy, sizeof(strategy));
     }
+
+    if (sit_old) {
+        this_->book.other_team_auction = sit_old->book.other_team_auction;
+        for (auto const& job: this_->auctions) {
+            if (job.lowest_bid > 0 and job.lowest_bid < job.reward) {
+                this_->book.other_team_auction = true;
+            }
+        }
+    }
 }
 void Situation::update(Percept const& p, u8 id, Buffer* containing) {
     assert(containing and containing->inside(this));
@@ -1282,7 +1291,7 @@ void Simulation_state::init(World* world_, Buffer* sit_buffer_, int sit_offset_,
         for (auto const& i: orig().shops)             dist_cache.register_pos(i.id, i.pos);
         for (auto const& i: orig().workshops)         dist_cache.register_pos(i.id, i.pos);
         for (auto const& i: orig().storages)          dist_cache.register_pos(i.id, i.pos);
-        dist_cache.calc_facilities();
+        //dist_cache.calc_facilities();
     }
 
     dist_cache.reset();
@@ -1454,7 +1463,7 @@ void Simulation_state::add_charging(u8 agent, u8 before) {
         : from_id;
     
     u16 min_dist = std::numeric_limits<u16>::max();
-    u8 min_arg;
+    u8 min_arg = 0;
     for (auto& i: orig().charging_stations) {
         u16 d = dist_cache.lookup_old(from_id, i.id) + dist_cache.lookup_old(i.id, to_id);
 
@@ -1563,7 +1572,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
 
         // Fattening
         u8 fatten_amount = 0;
-        u8 fatten_index;
+        u8 fatten_index = 0;
         for (u8 i = 0; i < planning_max_tasks; ++i) {
             auto const& t = s.task(agent, i);
             auto const& t_ = sit().strategy.task(agent, i);
@@ -1693,7 +1702,7 @@ void Simulation_state::add_item_for(u8 for_agent, u8 for_index, Item_stack for_i
     if (way->type == Viable_t::ONLY_MOVE) {
         // nothing
     } else if (way->type == Viable_t::BUY) {
-        u16 min_dist = std::numeric_limits<u32>::max();
+        u16 min_dist = std::numeric_limits<u16>::max();
         u8 min_arg = 0;
         for (auto const& i: orig().shops) {
             auto j = find_by_id(i.items, for_item.id);
@@ -2253,7 +2262,7 @@ float Simulation_state::rate() {
             item_rating += get_by_id(world->item_costs, i.id).value() * i.amount;
         }
     }
-    float fadeoff = std::min(1.f, (world->steps - orig().simulation_step) / rate_fadeoff);
+    float fadeoff = std::min(1.f, (world->steps - sit().simulation_step) / rate_fadeoff);
     rating += item_rating * rate_val_item * fadeoff;
     //rating += item_rating * rate_val_item;
 
@@ -2292,10 +2301,15 @@ void Simulation_state::auction_bets(Array<Auction_bet>* bets) {
         }
         
         float profit = ((float)job.reward - (float)job.fine * auction_fine_fac
-            - (float)cost * rate_job_cost) / (float)complexity * auction_profit_fac;
+            - (float)cost * rate_job_cost);
+        float profit_min = auction_profit_min * (float)complexity / auction_profit_fac;
 
-        if (profit > auction_profit_min) {
-            bets->push_back({job.id, job.reward});
+        if (profit > profit_min) {
+            int max_bid = 1;
+            if (orig().book.other_team_auction) {
+                max_bid = (int)(profit - profit_min + 1);
+            }
+            bets->push_back({job.id, (u32)(job.reward - rng.gen_uni(max_bid))});
         }
         if (bets->size() == max_bets_per_step) return;
     }

@@ -363,7 +363,7 @@ u32 Graph::dist_road(Graph_position const s, Graph_position const t, Buffer* int
 				auto other = it.is_nodea ? it->nodeb : it->nodea;
 				assert(other != node_invalid);
 				auto newdist = distf[nodef] + it->dist;
-				assert(newdist > estimateb(other));
+				//assert(newdist > estimateb(other));
 
 				if (newdist < distf[other]) {
 					auto e = estimatef(other);
@@ -597,14 +597,14 @@ void Graph::init(Buffer_view name, Buffer_view node_filename, Buffer_view edge_f
 		return file.get() << 8 | file.get();
 	};
 	auto read32 = [&file]() -> s32 {
-		s32 r;
+		s32 r = 0;
 		for (u8 i = 0; i < 4; ++i) {
 			r = (r << 8) | file.get();
 		}
 		return r;
 	};
 	auto read64 = [&file]() -> s64 {
-		s64 r;
+		s64 r = 0;
 		for (u8 i = 0; i < 8; ++i) {
 			r = (r << 8) | file.get();
 		}

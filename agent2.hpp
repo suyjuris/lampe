@@ -7,7 +7,7 @@
 
 namespace jup {
 
-constexpr int max_strategy_count = 256;
+constexpr int max_strategy_count = 512;
 
 constexpr float search_rating_max  = 5e5;
 constexpr float search_exploration = 0.005f;

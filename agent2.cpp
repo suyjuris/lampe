@@ -13,6 +13,7 @@ void Mothership_complex::init(Graph* graph_) {
     strategies.reset();
     strategies.reserve(max_strategy_count);
     strategies_guard = strategies.m_data.alloc_guard();
+    sim_state.dist_cache.facility_count = 0; // Dirty hack to reinitialise dist_cache
 }
 
 void Mothership_complex::on_sim_start(u8 agent, Simulation const& simulation, int sim_size) {

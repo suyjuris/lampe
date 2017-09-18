@@ -22,10 +22,10 @@ static int socket_id_counter = 0;
 /**
  * Helper, does some casting and asserting
  */
-Socket_win32_data& get_sock(Socket const& sock) {
-	static_assert(sizeof(sock.data) >= sizeof(Socket_win32_data),
+Socket_win32_data& get_sock(char* data) {
+	static_assert(sizeof(Socket().data) >= sizeof(Socket_win32_data),
 				  "sock.data is not big enough");
-	return *((Socket_win32_data*)sock.data);
+	return *(Socket_win32_data*)data;
 }
 
 // see header
@@ -50,7 +50,7 @@ void Socket::init(Buffer_view address, Buffer_view port) {
 				closesocket(sock);
 				jerr << "Warning: Unable to connect to server!\n";
 			} else {
-				get_sock(*this) = {sock, ++socket_id_counter};
+				get_sock(data) = {sock, ++socket_id_counter};
 				break;
 			}
 		}
@@ -68,7 +68,7 @@ void Socket::init(Buffer_view address, Buffer_view port) {
 // see header
 void Socket::close() {
 	if (!initialized) return;
-	closesocket(get_sock(*this).sock);
+	closesocket(get_sock(data).sock);
 	initialized = false;
 }
 
@@ -76,7 +76,7 @@ void Socket::close() {
 void Socket::send(Buffer_view buf) {
 	assert(initialized);
 	
-	auto code = ::send(get_sock(*this).sock, buf.data(), buf.size(), 0);
+	auto code = ::send(get_sock(data).sock, buf.data(), buf.size(), 0);
 	if (code == SOCKET_ERROR) {
 		jerr << "Warning: send failed: " << WSAGetLastError() << '\n';
         err = true;
@@ -92,7 +92,7 @@ int Socket::recv(Buffer* into) {
 	int total_count = 0;
 	while(true) {
 		into->reserve_space(256);
-		auto result = ::recv(get_sock(*this).sock, into->end(), into->space(), 0);
+		auto result = ::recv(get_sock(data).sock, into->end(), into->space(), 0);
 		
 		if (result < 0) {
             // This is dirty. When the program is closing down, there could be
@@ -124,7 +124,7 @@ int Socket::recv(Buffer* into) {
 }
 
 int Socket::get_id() const {
-    return get_sock(*const_cast<Socket*>(this)).id;
+    return get_sock(const_cast<char*>(data)).id;
 }
 
 } /* end of namespace jup */
