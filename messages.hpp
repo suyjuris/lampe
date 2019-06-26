@@ -1,8 +1,8 @@
 #pragma once
 
-#include "buffer.hpp"
+#include "juplib/buffer.hpp"
+#include "juplib/sockets.hpp"
 #include "objects.hpp"
-#include "sockets.hpp"
 #include "graph.hpp"
 
 namespace jup {

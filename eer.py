@@ -107,16 +107,31 @@ if len(sys.argv) == 2 and sys.argv[1].isdecimal():
     if s in d:
         fname, row, col = d[s]
         subprocess.Popen(['emacsclient', '-n', '+%s:%s' % (row, col) , fname]).wait()
+        subprocess.Popen(['i3-msg', '-q', 'workspace 5']).wait()
     sys.exit(0)
-        
-p = subprocess.Popen(sys.argv[1:], universal_newlines=True, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+args = sys.argv
+if args[1] in ('make', 'gcc', 'g++'):
+    mode = 'c'
+elif args[1] == '-c':
+    mode = 'c'
+    args = args[:1] + args[2:]
+elif 'python' in args[1]:
+    mode = 'p'
+elif args[1] == '-p':
+    mode = 'p'
+    args = args[:1] + args[2:]
+else:
+    mode = 'o'
+
+p = subprocess.Popen(args[1:], universal_newlines=True, bufsize=1, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 signal.signal(signal.SIGINT, request_stop_handler)
     
 COL_PATTERN = []
-if sys.argv[1] == 'make':
+if mode == 'c':
     COL_PATTERN = ['((?:[A-Z]:)?[^:]+:[0-9]+:[0-9]+: (?:fatal )?error: )([^[]*)(.*)']
     d, b = parse_make(p)
-elif 'python' in sys.argv[1]:
+elif mode == 'p':
     d, b = parse_python(p)    
 else:
     d, b = parse_other(p)
@@ -138,6 +153,7 @@ if d:
         code = p.wait()
         fname, row, col = d[s]
         subprocess.Popen(['emacsclient', '-n', '+%s:%s' % (row, col) , fname]).wait()
+        subprocess.Popen(['i3-msg', '-q', 'workspace 5']).wait()
         sys.exit(code)
     else:
         wait_until_exit(p)

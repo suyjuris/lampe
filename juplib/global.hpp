@@ -1,19 +1,3 @@
-// Needed for CancelSynchronousIo
-#undef _WIN32_WINNT
-#define _WIN32_WINNT _WIN32_WINNT_VISTA
-
-#ifndef _USE_MATH_DEFINES
-#define _USE_MATH_DEFINES
-#endif
-
-#ifndef WIN32_LEAN_AND_MEAN
-#define WIN32_LEAN_AND_MEAN
-#endif
-
-#ifndef __USE_W32_SOCKETS
-#define __USE_W32_SOCKETS
-#endif
-
 
 // lampe general headers
 #include <algorithm>
@@ -46,10 +30,30 @@
 #include "pugixml.hpp"
 
 // win32 libraries
+#ifdef JUP_WINDOWS
+
 #include <io.h>
 #include <winsock2.h>
 #include <windows.h>
 #include <ws2tcpip.h>
+
+// Needed for CancelSynchronousIo
+#undef _WIN32_WINNT
+#define _WIN32_WINNT _WIN32_WINNT_VISTA
+
+#ifndef _USE_MATH_DEFINES
+#define _USE_MATH_DEFINES
+#endif
+
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+
+#ifndef __USE_W32_SOCKETS
+#define __USE_W32_SOCKETS
+#endif
+
+#endif // JUP_WINDOWS
 
 #ifdef NDEBUG
 

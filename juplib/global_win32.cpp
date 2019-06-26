@@ -184,7 +184,7 @@ extern "C" void handle_signal(int sig) {
     case SIGILL:  msg = "Caught a SIGILL\n";       break;
     case SIGSEGV: msg = "Segmentation fault\n";    break;
     case SIGFPE:  msg = "Arithmetic exception\n";  break;
-    default:      msg = "Unknwon signal caught\n"; break;
+    default:      msg = "Unknown signal caught\n"; break;
     }
     die(msg, sig, sig != SIGINT);
 }

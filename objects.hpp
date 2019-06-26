@@ -1,6 +1,6 @@
 #pragma once
 
-#include "flat_data.hpp"
+#include "juplib/flat_data.hpp"
 
 namespace jup {	
 
@@ -342,5 +342,16 @@ struct Percept {
 	Flat_array<Mission> missions;
 	Flat_array<Posted> posteds;
 };
+
+
+
+inline Debug_ostream& operator< (Debug_ostream& out, Item_stack i) {
+    if (i.id == 0) {
+        out > "{} ";
+    } else {
+        out > "{" > get_string_from_id(i.id).c_str() > ", " < i.amount > "\b} ";
+    }
+    return out;
+}
 
 } /* end of namespace jup */

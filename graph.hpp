@@ -1,7 +1,7 @@
 #pragma once
 
-#include "array.hpp"
-#include "flat_data.hpp"
+#include "juplib/array.hpp"
+#include "juplib/flat_data.hpp"
 #include "objects.hpp"
 
 namespace jup {

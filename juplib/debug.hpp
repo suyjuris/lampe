@@ -2,61 +2,64 @@
 
 #include "array.hpp"
 #include "buffer.hpp"
-#include "objects.hpp"
-#include "messages.hpp"
+#include "flat_data.hpp"
 #include "utilities.hpp"
-#include "simulation.hpp"
-#include "graph.hpp"
 
 namespace jup {
 
 void dbg_main();
 
-#define __get_macro(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9,\
+#define __jup_get_macro(_0, _1, _2, _3, _4, _5, _6, _7, _8, _9,\
 _10, _11, _12, _13, _14, _15, _16, _17, _18, mac, ...) mac
-#define __fh1(mac, a) mac(a)
-#define __fh2(mac, a, ...) mac(a) __fh1(mac, __VA_ARGS__)
-#define __fh3(mac, a, ...) mac(a) __fh2(mac, __VA_ARGS__)
-#define __fh4(mac, a, ...) mac(a) __fh3(mac, __VA_ARGS__)
-#define __fh5(mac, a, ...) mac(a) __fh4(mac, __VA_ARGS__)
-#define __fh6(mac, a, ...) mac(a) __fh5(mac, __VA_ARGS__)
-#define __fh7(mac, a, ...) mac(a) __fh6(mac, __VA_ARGS__)
-#define __fh8(mac, a, ...) mac(a) __fh7(mac, __VA_ARGS__)
-#define __fh9(mac, a, ...) mac(a) __fh8(mac, __VA_ARGS__)
-#define __fh10(mac, a, ...) mac(a) __fh9(mac, __VA_ARGS__)
-#define __fh11(mac, a, ...) mac(a) __fh10(mac, __VA_ARGS__)
-#define __fh12(mac, a, ...) mac(a) __fh11(mac, __VA_ARGS__)
-#define __fh13(mac, a, ...) mac(a) __fh12(mac, __VA_ARGS__)
-#define __fh14(mac, a, ...) mac(a) __fh13(mac, __VA_ARGS__)
-#define __fh15(mac, a, ...) mac(a) __fh14(mac, __VA_ARGS__)
-#define __fh16(mac, a, ...) mac(a) __fh15(mac, __VA_ARGS__)
-#define __fh17(mac, a, ...) mac(a) __fh16(mac, __VA_ARGS__)
-#define __fh18(mac, a, ...) mac(a) __fh17(mac, __VA_ARGS__)
-#define __fh19(mac, a, ...) mac(a) __fh18(mac, __VA_ARGS__)
-#define __forall(mac, ...) __get_macro(__VA_ARGS__, __fh19,\
-__fh18, __fh17, __fh16, __fh15,__fh14, __fh13, __fh12, __fh11,\
-__fh10, __fh9, __fh8, __fh7, __fh6, __fh5, __fh4, __fh3, __fh2,\
- __fh1, "fill") (mac, __VA_ARGS__)
+#define __jup_fh1(mac, a) mac(a)
+#define __jup_fh2(mac, a, ...) mac(a) __jup_fh1(mac, __VA_ARGS__)
+#define __jup_fh3(mac, a, ...) mac(a) __jup_fh2(mac, __VA_ARGS__)
+#define __jup_fh4(mac, a, ...) mac(a) __jup_fh3(mac, __VA_ARGS__)
+#define __jup_fh5(mac, a, ...) mac(a) __jup_fh4(mac, __VA_ARGS__)
+#define __jup_fh6(mac, a, ...) mac(a) __jup_fh5(mac, __VA_ARGS__)
+#define __jup_fh7(mac, a, ...) mac(a) __jup_fh6(mac, __VA_ARGS__)
+#define __jup_fh8(mac, a, ...) mac(a) __jup_fh7(mac, __VA_ARGS__)
+#define __jup_fh9(mac, a, ...) mac(a) __jup_fh8(mac, __VA_ARGS__)
+#define __jup_fh10(mac, a, ...) mac(a) __jup_fh9(mac, __VA_ARGS__)
+#define __jup_fh11(mac, a, ...) mac(a) __jup_fh10(mac, __VA_ARGS__)
+#define __jup_fh12(mac, a, ...) mac(a) __jup_fh11(mac, __VA_ARGS__)
+#define __jup_fh13(mac, a, ...) mac(a) __jup_fh12(mac, __VA_ARGS__)
+#define __jup_fh14(mac, a, ...) mac(a) __jup_fh13(mac, __VA_ARGS__)
+#define __jup_fh15(mac, a, ...) mac(a) __jup_fh14(mac, __VA_ARGS__)
+#define __jup_fh16(mac, a, ...) mac(a) __jup_fh15(mac, __VA_ARGS__)
+#define __jup_fh17(mac, a, ...) mac(a) __jup_fh16(mac, __VA_ARGS__)
+#define __jup_fh18(mac, a, ...) mac(a) __jup_fh17(mac, __VA_ARGS__)
+#define __jup_fh19(mac, a, ...) mac(a) __jup_fh18(mac, __VA_ARGS__)
+#define __jup_forall(mac, ...) __jup_get_macro(__VA_ARGS__, __jup_fh19,\
+__jup_fh18, __jup_fh17, __jup_fh16, __jup_fh15,__jup_fh14, __jup_fh13, __jup_fh12, __jup_fh11,\
+__jup_fh10, __jup_fh9, __jup_fh8, __jup_fh7, __jup_fh6, __jup_fh5, __jup_fh4, __jup_fh3, __jup_fh2,\
+ __jup_fh1, "fill") (mac, __VA_ARGS__)
 
-#define __sm1(x, y, ...) y
-#define __sm2(...) __sm1(__VA_ARGS__, __sm4,)
-#define __sm3(...) ~, __sm5,
-#define __sm4(f1, f2, x) f1(x)
-#define __sm5(f1, f2, x) f2 x
-#define __select(f1, f2, x) __sm2(__sm3 x)(f1, f2, x)
+#define __jup_sm1(x, y, ...) y
+#define __jup_sm2(...) __jup_sm1(__VA_ARGS__, __jup_sm4,)
+#define __jup_sm3(...) ~, __jup_sm5,
+#define __jup_sm4(f1, f2, x) f1(x)
+#define __jup_sm5(f1, f2, x) f2 x
+#define __jup_select(f1, f2, x) __jup_sm2(__jup_sm3 x)(f1, f2, x)
 
 // An output stream for debugging purposes
 struct Debug_ostream {
     std::ostream& out;
     Buffer buf;
+    Idmap* strings = nullptr;
     
     Debug_ostream(std::ostream& out): out{out} {}
 
     template <typename... Args>
-    Debug_ostream& printf(c_str fmt, Args const&... args) {
+    Debug_ostream& printf(char const* fmt, Args const&... args) {
         buf.reserve(256);
         while (true) {
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-security"
             int count = std::snprintf(buf.data(), buf.capacity(), fmt, args...);
+#pragma GCC diagnostic pop
+
             assert(count >= 0);
             if (count < buf.capacity()) break;
             buf.reserve(count);
@@ -64,6 +67,7 @@ struct Debug_ostream {
         out << buf.data();
         return *this;
     }
+
 };
 
 struct Debug_tabulator {
@@ -72,12 +76,7 @@ struct Debug_tabulator {
 		n = 0;
 	}
 };
-
 extern Debug_tabulator tab;
-
-struct Repr {
-    Buffer_view data;
-};
 
 inline Debug_ostream& operator< (Debug_ostream& out, Debug_tabulator const& tab) {
 	for (u8 i = 0; i < tab.n; i++) {
@@ -85,6 +84,8 @@ inline Debug_ostream& operator< (Debug_ostream& out, Debug_tabulator const& tab)
 	}
 	return out;
 }
+
+struct Repr { Buffer_view data; };
 inline Debug_ostream& operator< (Debug_ostream& out, Repr r) {
     out.out << '"';
 	for (char c: r.data) {
@@ -101,30 +102,33 @@ inline Debug_ostream& operator< (Debug_ostream& out, Repr r) {
         } else if (' ' <= c and c <= '~') {
             out.out << c;
         } else {
-            out.printf("\\x%02x", (u8)c);
+            out.printf("\\x%02hhx", (u8)c);
         }
 	}
     out.out << "\" ";
 	return out;
 }
 
-template <typename T> struct Hex { T const& value; };
-
-template <typename T> auto make_hex(T const& obj) { return Hex<T> {obj}; }
+template <typename T>
+struct Hex_t {
+    T const& value;
+};
+template <typename T>
+auto Hex(T const& val) { return Hex_t<T>{val}; }
 
 template <typename T> struct Hex_fmt;
-template <> struct Hex_fmt<u8>  { static constexpr c_str fmt = "0x%.2hhx"; };
-template <> struct Hex_fmt<s8>  { static constexpr c_str fmt = "0x%.2hhx"; };
-template <> struct Hex_fmt<u16> { static constexpr c_str fmt = "0x%.4hx"; };
-template <> struct Hex_fmt<s16> { static constexpr c_str fmt = "0x%.4hx"; };
-template <> struct Hex_fmt<u32> { static constexpr c_str fmt = "0x%.8x"; };
-template <> struct Hex_fmt<s32> { static constexpr c_str fmt = "0x%.8x"; };
-template <> struct Hex_fmt<u64> { static constexpr c_str fmt = "0x%.16I64x"; };
-template <> struct Hex_fmt<s64> { static constexpr c_str fmt = "0x%.16I64x"; };
-template <typename T> struct Hex_fmt<T*> { static constexpr c_str fmt = "%p"; };
+template <> struct Hex_fmt<u8>  { static constexpr char const* fmt = "0x%.2"  PRIx8;  };
+template <> struct Hex_fmt<s8>  { static constexpr char const* fmt = "0x%.2"  PRIx8;  };
+template <> struct Hex_fmt<u16> { static constexpr char const* fmt = "0x%.4"  PRIx16; };
+template <> struct Hex_fmt<s16> { static constexpr char const* fmt = "0x%.4"  PRIx16; };
+template <> struct Hex_fmt<u32> { static constexpr char const* fmt = "0x%.8"  PRIx32; };
+template <> struct Hex_fmt<s32> { static constexpr char const* fmt = "0x%.8"  PRIx32; };
+template <> struct Hex_fmt<u64> { static constexpr char const* fmt = "0x%.16" PRIx64; };
+template <> struct Hex_fmt<s64> { static constexpr char const* fmt = "0x%.16" PRIx64; };
+template <typename T> struct Hex_fmt<T*> { static constexpr char const* fmt = "%p"; };
 
 template <typename T>
-inline Debug_ostream& operator< (Debug_ostream& out, Hex<T> h) {
+inline Debug_ostream& operator< (Debug_ostream& out, Hex_t<T> h) {
     out.printf(Hex_fmt<T>::fmt, h.value);
     out.out.put(' ');
     return out;
@@ -177,6 +181,10 @@ inline void operator, (Debug_ostream& out, u8 n) {
 }
 
 template <typename T, typename T2, typename T3>
+inline Debug_ostream& operator< (Debug_ostream& out, jup_str s) {
+	out.out .write(s.data(), s.size()); return out < ' ';
+}
+template <typename T, typename T2, typename T3>
 inline Debug_ostream& operator< (Debug_ostream& out, Flat_array<T, T2, T3> const& fa) {
 	return out <= fa;
 }
@@ -191,6 +199,10 @@ inline Debug_ostream& operator< (Debug_ostream& out, Array<T> const& arr) {
 }
 template <typename T>
 inline Debug_ostream& operator< (Debug_ostream& out, Array_view<T> const& arr) {
+	return out <= arr;
+}
+template <typename T>
+inline Debug_ostream& operator< (Debug_ostream& out, Array_view_mut<T> const& arr) {
 	return out <= arr;
 }
 template <typename T, size_t n>
@@ -214,7 +226,7 @@ inline Debug_ostream& operator> (Debug_ostream& out, jup_str s) {
     return out;
 }
 inline Debug_ostream& operator< (Debug_ostream& out, double d) {
-	return out.printf("%.4e ", d);
+	return out.printf("%.2e ", d);
 }
 inline Debug_ostream& operator< (Debug_ostream& out, float f) {
     return out < (double)f;
@@ -273,13 +285,9 @@ inline Debug_ostream& operator< (Debug_ostream& out, Diff_flat_arrays_base<T1, T
 	return out;
 }
 
-inline Debug_ostream& operator< (Debug_ostream& out, Item_stack i) {
-    if (i.id == 0) {
-        out > "{} ";
-    } else {
-        out > "{" > get_string_from_id(i.id).c_str() > ", " < i.amount > "\b} ";
-    }
-    return out;
+template <typename T>
+inline Debug_ostream& operator> (Debug_ostream& out, T const& t) {
+    return out < t;
 }
 
 inline void consume_prefix_stack(Debug_ostream& out, Array<jup_str>& stack) {
@@ -454,133 +462,58 @@ void jdbg_diff(T const& a, T const& b) {
 }
 
 // type must have between 1 and 15 elements
-#define display_var1(var) > #var " = " < obj.var > "\b, "
-#define display_var2(var, fmt) > #var " = " < fmt(obj.var) > "\b, "
-#define display_var(var) __select(display_var1, display_var2, var)
-#define display_obj(type, ...)                                          \
-    inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) { \
-	    return out > "(" #type ") {" __forall(display_var, __VA_ARGS__) > "\b\b} "; \
-    }
-    
-#define print_for_gdb(type) \
+#define __jup_display_var1(var) > " " > #var > " = " < obj.var > "\b,"
+#define __jup_display_var2(var, fmt) > " " > #var > " = " < fmt(obj.var) > "\b,"
+#define __jup_display_var(var) __jup_select(__jup_display_var1, __jup_display_var2, var)
+#define __jup_display_val1(var) < obj.var > "\b, "
+#define __jup_display_val2(var, fmt) < fmt(obj.var) > "\b, "
+#define __jup_display_val(var) __jup_select(__jup_display_val1, __jup_display_val2, var)
+#define __jup_display_obj(type, ...)                                          \
+    out > "(" > #type > ") {" __jup_forall(__jup_display_var, __VA_ARGS__) > "\b } "
+#define __jup_display_vec(type, ...)                                          \
+    out > "{" __jup_forall(__jup_display_val, __VA_ARGS__) > "\b\b} "
+#define __jup_print_gdb(type) \
     inline void print(type const& obj) __attribute__ ((used));  \
     inline void print(type const& obj) {                        \
         jup::jdbg < obj, 0;                                     \
     }
 
-#define dodiff_var1(var) diff_var(out, stack, #var ": ", ", ", a.var, b.var);
-#define dodiff_var2(var, fmt) dodiff_var1(var)
-#define dodiff_var(var) __select(dodiff_var1, dodiff_var2, var)
-#define dodiff_obj(type, ...)                                           \
+#define __jup_dodiff_var1(var) diff_var(out, stack, #var ": ", ", ", a.var, b.var);
+#define __jup_dodiff_var2(var, fmt) __jup_dodiff_var1(var)
+#define __jup_dodiff_var(var) __select(__jup_dodiff_var1, __jup_dodiff_var2, var)
+#define __jup_dodiff_obj(type, ...)                                           \
     inline void print_diff(Debug_ostream& out, Array<jup_str>& stack, type const& a, type const& b) { \
         stack.push_back(diff_obj_prefix(a, "(" #type ")"));             \
-        __forall(dodiff_var, __VA_ARGS__)                               \
+        __jup_forall(__jup_dodiff_var, __VA_ARGS__)                               \
         if (not stack) { out > "\b\b}"; } else { stack.pop_back(); }    \
     }
 
 
-#define op(type, ...)                                                   \
-    display_obj(type, __VA_ARGS__)                                      \
-    dodiff_obj(type, __VA_ARGS__)                                       \
-    print_for_gdb(type)
+#define __jup_dbg(type, ...) \
+    inline Debug_ostream& operator< (Debug_ostream& out, type const& obj) {    \
+	    return __jup_display_obj(type, __VA_ARGS__);                           \
+    }                                                                          \
+    inline Debug_ostream& operator> (Debug_ostream& out, type const& obj) {    \
+	    return __jup_display_vec(type, __VA_ARGS__);                           \
+    }                                                                          \
+    __jup_print_gdb(type)
 
-#define hex(x) (x, make_hex)
-#define repr(x) (x, Repr)
-#define id(x) (x, Id_string)
-#define id16(x) (x, Id_string16)
-#define mask(x, m) (x, (apply_mask<decltype(m), m>))
-#define action_name(x) (x, Action::get_name)
-#define action_result_name(x) (x, Action::get_result_name)
+#define __jup_hex(x) (x, Hex)
+#define __jup_repr(x) (x, Repr)
+#define __jup_id(x) (x, Id_string)
+#define __jup_mask(x, m) (x, (apply_mask<decltype(m), m>))
 
-op(Buffer_view, hex(m_data), m_size)
-op(Buffer, hex(m_data), m_size, mask(m_capacity, 0x7fffffff))
-op(Flat_array_ref, offset, element_size)
-
-dodiff_obj(Item_stack, id(item), amount)
-op(Pos, lat, lon)
-op(Item, id(name), volume, consumed, tools)
-op(Role, id(name), speed, battery, load, tools)
-op(Action, type, action_name(type))
-op(Simulation, id, map, team, seed_capital, steps, role, items)
-op(Entity, id(name), team, pos, role)
-op(Self, id(name), team, pos, role, charge, load, id(facility), action_name(action_type),
-    action_result_name(action_result), items)
-op(Facility, id(name), pos)
-op(Charging_station, id(name), pos, rate)
-op(Dump, id(name), pos)
-op(Shop_item, id(item), amount, cost)
-op(Shop, id(name), pos, restock, items)
-op(Storage_item, item, amount, delivered)
-op(Storage, id(name), pos, total_capacity, used_capacity, items)
-op(Workshop, id(name), pos)
-op(Job, id16(id), storage, start, end, required, reward)
-op(Auction, id16(id), storage, start, end, required, reward, fine)
-//op(Mission, id16(id), storage, start, end, required, reward, fine, max_bid)
-op(Posted, id16(id), storage, start, end, required, reward)
-op(Resource_node, id(name), resource, pos)
-op(Percept, deadline, id, simulation_step, team_money, self, entities, charging_stations, dumps,
-    shops, storages, workshops, resource_nodes, auctions, jobs, missions, posteds)
-
-op(Task, type, id(where), id, item, job_id, cnt, fixer_it)
-op(Task_result, time, err, err_arg)
-op(Shop_limit, id(shop), item)
-op(Item_cost, id(id), count, sum)
-op(World, team, seed_capital, steps, items, roles, graph, shop_limits, item_costs)
-op(Job_item, id16(job_id), item)
-op(Bookkeeping, delivered)
-op(Task_slot, task, result)
-op(Auction_bet, job_id, bet)
-op(Strategy, m_tasks)
-op(Crafting_slot, type, agent, item, extra_load)
-op(Crafting_plan, slots)
-op(Self_sim, id(name), team, pos, role, charge, load, id(facility), action_name(action_type),
-    action_result_name(action_result), task_index, task_state, task_sleep, items)
-op(Situation, simulation_step, team_money, selves, entities, charging_stations, dumps, shops,
-    storages, workshops, resource_nodes, auctions, jobs, missions, posteds, strategy, book)
-
-display_obj(Graph_position, id, edge_pos)
-
-/*op(Requirement, type, dependency, item, where, is_tool, state, id)
-op(Job_execution, job, cost, needed)
-op(Cheap_item, item, price, shop)
-op(Deliver_item, item, storage, job)
-op(Reserved_item, agent, until, item)
-op(Charging_station_static, id(name), pos, rate, price, slots)
-op(Charging_station_dynamic, q_size)
-op(Shop_item_static, item, cost, period)
-op(Shop_item_dynamic, amount, restock)
-op(Shop_static, id(name), pos, items)
-op(Shop_dynamic, items)
-op(Storage_static, id(name), pos, price, total_capacity)
-op(Storage_dynamic, used_capacity, items)
-op(Task, type, where, item, state)
-op(Entity_static, id(name), role)
-op(Entity_dynamic, pos)
-op(Agent_static, id(name), role)
-op(Agent_dynamic, pos, charge, load, last_action, last_action_result,
-	in_facility, f_position, route_length, task, last_go, items, route)
-op(Situation, deadline, simulation_step, team, agents, opponents,
-	charging_stations, shops, storages, auctions, jobs)
-op(World, simulation_id, team_id, opponent_team, seed_capital,
-	max_steps, agents, opponents, roles, items, charging_stations,
-	dumps, shops, storages, workshops)*/
-
-#undef op
-#undef display_obj
-#undef display_var
-#undef display_var1
-#undef display_var2
-#undef print_for_dbg
-#undef dodiff_obj
-#undef dodiff_var
-#undef dodiff_var1
-#undef dodiff_var2
-#undef hex
-#undef repr
-#undef id
-#undef id16
-#undef mask
-#undef action_name
+template <typename Range>
+Debug_ostream& operator>= (Debug_ostream& out, Range const& r) {
+	out > "{";
+	if (std::begin(r) == std::end(r)) {
+		return  out > "} ";
+	}
+    for (auto i = std::begin(r); i != std::end(r); ++i) {
+        out > *i > "\b, ";
+    }
+    return out > "\b\b} ";
+}
 
 template <typename Range>
 Debug_ostream& operator<= (Debug_ostream& out, Range const& r) {

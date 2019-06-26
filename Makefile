@@ -4,15 +4,16 @@
 # cv2pdb is required to build this project. You can use 'make init' to install a prebuild binary.
 
 TARGET = jup
-LIBS = -lWs2_32 -lversion -static-libstdc++ -static-libgcc -static
+LIBS = 
 CXX = g++
 CXXFLAGS = -g -Wall -Werror -pedantic -fmax-errors=2
-CPPFLAGS = -std=c++1z
+CPPFLAGS = -std=c++17
 LDFLAGS  = -Wall
-EXEEXT = .exe
+EXEEXT = 
 CV2PDB = cv2pdb
 TMPDIR = build_files
 PRE_HEADER = $(TMPDIR)/global.hpp.gch
+INIT_DEPS = 
 
 ifdef LAMPE_FAST
   CXXFLAGS += -O3 -march=native
@@ -21,17 +22,26 @@ else
   CXXFLAGS += -O0
 endif
 
-.PHONY: default all clean test init
+ifdef JUP_WINDOWS
+  CPPFLAGS += -DJUP_WINDOWS
+  LIBS += -lWs2_32 -lversion -static-libstdc++ -static-libgcc -static
+  INIT_DEPS += cv2pdb
+  EXEEXT = .exe
+else
+  CPPFLAGS += -DJUP_LINUX
+endif
+
+.PHONY: default all clean test init cv2pdb
 .SUFFIXES:
 
 all: default
 
-SOURCES = $(wildcard *.c) $(wildcard *.cpp)
+SOURCES = $(wildcard *.cpp) $(wildcard libs/*.cpp) $(wildcard juplib/*.cpp)
 OBJECTS = $(SOURCES:%.cpp=$(TMPDIR)/%.o)
-HEADERS = $(wildcard *.h) $(wildcard *.hpp)
+HEADERS = $(wildcard *.hpp) $(wildcard libs/*.hpp) $(wildcard juplib/*.hpp)
 DEPS    = $(SOURCES:%.cpp=$(TMPDIR)/%.d)
 
-$(PRE_HEADER): global.hpp
+$(PRE_HEADER): juplib/global.hpp
 	@mkdir -p $(TMPDIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $< -o $@
 
@@ -55,8 +65,10 @@ $(TMPDIR)/$(TARGET): $(OBJECTS)
 $(TARGET): $(TMPDIR)/$(TARGET)
 	$(CV2PDB) $<$(EXEEXT) $@$(EXEEXT)
 
-init:
+init: $(INIT_DEPS)
 	mkdir -p /usr/local/bin
+
+cv2pdb:
 	wget https://ci.appveyor.com/api/projects/rainers/visuald/artifacts/cv2pdb.exe?job=Environment%\
 	3A%20os%3DVisual%20Studio%202013%2C%20VS%3D12%2C%20APPVEYOR_BUILD_WORKER_IMAGE%3DVisual%20Studi\
 	o%202015 -O /usr/local/bin/cv2pdb.exe
